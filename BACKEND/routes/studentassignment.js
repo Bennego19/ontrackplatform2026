@@ -1,0 +1,233 @@
+import express from "express";
+import db from "../db/conn.mjs";
+import { ObjectId } from "mongodb";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+import ExpressBrute from "express-brute";
+const router = express.Router();
+var store = new ExpressBrute.MemoryStore();
+var bruteforce = new ExpressBrute(store);
+// Get all mentors with their assigned students
+router.get("/",bruteforce.prevent, async (req, res) => {
+    let collection = await db.collection("mentors");
+    let results = await collection.find({}).toArray();
+    res.send(results).status(200);
+});
+
+// Get a specific mentor with their students
+router.get("/:id",bruteforce.prevent, async (req, res) => {
+    try {
+        let collection = await db.collection("mentors");
+        let query = { _id: new ObjectId(req.params.id) };
+        let result = await collection.findOne(query);
+        
+        if (!result) {
+            return res.status(404).json({ message: "Mentor not found" });
+        }
+        res.send(result).status(200);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// Mentor signup
+router.post("/signup",bruteforce.prevent, async(req, res) => {
+    try {
+        let newDocument = {
+            firstname: req.body.firstname,
+            lastname: req.body.lastname,
+            email: req.body.email,
+            cellnumber: req.body.cellnumber,
+            cohort: req.body.cohort,
+            track: req.body.track,
+            username: req.body.username,
+            password: req.body.password,
+            program: req.body.program,
+            students: [], // Initialize empty students array
+            maxStudents: req.body.maxStudents || 5, // Default max students
+            createdAt: new Date()
+        };
+
+        let collection = await db.collection("mentors");
+        let result = await collection.insertOne(newDocument);
+        
+        res.status(201).json({
+            message: "Mentor created successfully",
+            mentorId: result.insertedId
+        });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// Assign student to mentor
+router.post("/:mentorId/assign-student",bruteforce.prevent, async (req, res) => {
+    try {
+        const mentorId = new ObjectId(req.params.mentorId);
+        const { studentId, studentName, studentEmail, studentCohort } = req.body;
+
+        // Validate required fields
+        if (!studentId || !studentName) {
+            return res.status(400).json({ 
+                message: "Student ID and name are required" 
+            });
+        }
+
+        const mentorsCollection = await db.collection("mentors");
+        
+        // Check if mentor exists
+        const mentor = await mentorsCollection.findOne({ _id: mentorId });
+        if (!mentor) {
+            return res.status(404).json({ message: "Mentor not found" });
+        }
+
+        // Check if mentor has reached maximum students
+        if (mentor.students && mentor.students.length >= (mentor.maxStudents || 5)) {
+            return res.status(400).json({ 
+                message: "Mentor has reached maximum student capacity" 
+            });
+        }
+
+        // Check if student is already assigned to this mentor
+        if (mentor.students && mentor.students.some(s => s.studentId === studentId)) {
+            return res.status(400).json({ 
+                message: "Student is already assigned to this mentor" 
+            });
+        }
+
+        const studentData = {
+            studentId: studentId,
+            studentName: studentName,
+            studentEmail: studentEmail || "",
+            studentCohort: studentCohort || "",
+            assignedAt: new Date(),
+            status: "active"
+        };
+
+        // Add student to mentor's students array
+        const result = await mentorsCollection.updateOne(
+            { _id: mentorId },
+            { 
+                $push: { students: studentData },
+                $set: { updatedAt: new Date() }
+            }
+        );
+
+        if (result.modifiedCount === 0) {
+            return res.status(400).json({ message: "Failed to assign student" });
+        }
+
+        res.status(200).json({
+            message: "Student assigned to mentor successfully",
+            student: studentData
+        });
+
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// Remove student from mentor
+router.delete("/:mentorId/students/:studentId",bruteforce.prevent, async (req, res) => {
+    try {
+        const mentorId = new ObjectId(req.params.mentorId);
+        const studentId = req.params.studentId;
+
+        const mentorsCollection = await db.collection("mentors");
+        
+        const result = await mentorsCollection.updateOne(
+            { _id: mentorId },
+            { 
+                $pull: { students: { studentId: studentId } },
+                $set: { updatedAt: new Date() }
+            }
+        );
+
+        if (result.modifiedCount === 0) {
+            return res.status(404).json({ 
+                message: "Student not found or already removed" 
+            });
+        }
+
+        res.status(200).json({
+            message: "Student removed from mentor successfully"
+        });
+
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// Get all students for a specific mentor
+router.get("/:mentorId/students", async (req, res) => {
+    try {
+        const mentorId = new ObjectId(req.params.mentorId);
+        
+        const mentorsCollection = await db.collection("mentors");
+        const mentor = await mentorsCollection.findOne(
+            { _id: mentorId },
+            { projection: { students: 1, firstname: 1, lastname: 1 } }
+        );
+
+        if (!mentor) {
+            return res.status(404).json({ message: "Mentor not found" });
+        }
+
+        res.status(200).json({
+            mentor: `${mentor.firstname} ${mentor.lastname}`,
+            students: mentor.students || []
+        });
+
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// Update mentor information
+router.patch("/:id",bruteforce.prevent,  async (req, res) => {
+    try {
+        const query = { _id: new ObjectId(req.params.id) };
+        const updates = {
+            $set: {
+                ...req.body,
+                updatedAt: new Date()
+            }
+        };
+
+        let collection = db.collection("mentors");
+        let result = await collection.updateOne(query, updates);
+        
+        if (result.matchedCount === 0) {
+            return res.status(404).json({ message: "Mentor not found" });
+        }
+
+        res.status(200).json({
+            message: "Mentor updated successfully",
+            modifiedCount: result.modifiedCount
+        });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// Delete mentor
+router.delete("/:id",bruteforce.prevent, async(req, res) => {
+    try {
+        const query = { _id: new ObjectId(req.params.id) };
+        const collection = db.collection("mentors");
+        let result = await collection.deleteOne(query);
+
+        if (result.deletedCount === 0) {
+            return res.status(404).json({ message: "Mentor not found" });
+        }
+
+        res.status(200).json({
+            message: "Mentor deleted successfully",
+            deletedCount: result.deletedCount
+        });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+export default router;
