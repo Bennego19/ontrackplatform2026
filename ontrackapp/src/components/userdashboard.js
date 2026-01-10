@@ -168,6 +168,10 @@ const UserDashboard = () => {
   };
 
   const transformUserData = (backendData) => {
+    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    const registrationMonth = backendData.createdAt ?
+      monthNames[new Date(backendData.createdAt).getMonth()] : "Not specified";
+
     return {
       name: `${backendData.name || ''} ${backendData.surname || ''}`.trim(),
       username: backendData.username,
@@ -175,11 +179,10 @@ const UserDashboard = () => {
       program: backendData.program,
       track: backendData.track,
       semester: getCurrentSemester(backendData.createdAt),
-      registrationMonth: backendData.registrationMonth || "Not specified",
+      registrationMonth: registrationMonth,
       studentId: backendData.username,
       cohort: `${backendData.program} ${new Date().getFullYear()}`,
-      startDate: backendData.createdAt ?
-        new Date(backendData.createdAt).toLocaleDateString() : "Not specified",
+      startDate: "March 1",
       cellnumber: backendData.cellnumber || "Not provided"
     };
   };

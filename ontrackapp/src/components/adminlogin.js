@@ -28,11 +28,11 @@ const AdminLogin = ({ onLoginSuccess }) => {
         if (typeof onLoginSuccess === 'function') {
           onLoginSuccess(response);
         }
-        // navigate to dashboard route
+        // navigate to admin dashboard route
         try {
-          navigate('/dashboard');
+          navigate('/admin-dashboard');
         } catch (e) {
-          console.warn('Navigation to /dashboard failed:', e);
+          console.warn('Navigation to /admin-dashboard failed:', e);
         }
       } else {
         setLoginError(response.message || "Login failed");
@@ -62,11 +62,12 @@ const AdminLogin = ({ onLoginSuccess }) => {
                 onChange={(e) => setLoginData({ ...loginData, username: e.target.value })}
                 required
                 disabled={isLoading}
+                placeholder="Enter your username"
               />
             </div>
 
             <div className="form-group">
-              <label htmlFor="adminpassword">Password</label>
+              <label htmlFor="password">Password</label>
               <input
                 type="password"
                 id="password"
@@ -74,7 +75,12 @@ const AdminLogin = ({ onLoginSuccess }) => {
                 onChange={(e) => setLoginData({ ...loginData, password: e.target.value })}
                 required
                 disabled={isLoading}
+                placeholder="Enter your password"
               />
+            </div>
+
+            <div className="forgot-password">
+              <a href="#" className="forgot-link">Forgot password?</a>
             </div>
 
             {loginError && (
@@ -90,6 +96,14 @@ const AdminLogin = ({ onLoginSuccess }) => {
             >
               {isLoading ? 'Logging in...' : 'Login'}
             </button>
+
+            <div className="signup-section">
+              <p>Create an account <a href="#" className="signup-link">Signup now</a></p>
+            </div>
+
+            <div className="copyright">
+              <p>&copy; bylewebster.com</p>
+            </div>
           </form>
         </div>
       </div>
