@@ -1,6 +1,5 @@
 import express from 'express';
-import https from "https"; // prevent MITM attacks and eavesdropping and DDos
-
+import https from "https";
 import cors from 'cors';
 import dotenv from 'dotenv';
 import mentorstudentassignment from './routes/mentorstudentassignment.mjs';
@@ -17,10 +16,9 @@ import cohorts from './routes/cohorts.mjs';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import helmet from "helmet"; // protects against cross site scripting (XSS), clickjacking, etc.
-import mongoSanitize from "express-mongo-sanitize"; // against NoSQL injection attacks
-
-
+import helmet from "helmet";
+import mongoSanitize from "express-mongo-sanitize";
+import db from './db/conn.mjs'; // Import your database connection
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -30,12 +28,47 @@ const uploadsDir = path.join(__dirname, 'uploads');
 // Create directory if it doesn't exist
 if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
-    console.log('Uploads directory created');
+    console.log('✅ Uploads directory created');
 }
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Add connection status tracking
+let dbConnectionStatus = 'DISCONNECTED';
+let serverStatus = 'STOPPED';
+
+// Function to check database connection
+const checkDatabaseConnection = async () => {
+  try {
+    if (db) {
+      // Try to ping the database
+      const adminDb = db.admin();
+      const pingResult = await adminDb.ping();
+      
+      if (pingResult && pingResult.ok === 1) {
+        dbConnectionStatus = 'CONNECTED';
+        console.log('✅ Database connection: CONNECTED');
+        console.log(`📊 Database name: ${db.databaseName}`);
+        
+        // List collections
+        const collections = await db.listCollections().toArray();
+        console.log(`📁 Collections found: ${collections.length}`);
+        collections.forEach(col => {
+          console.log(`   - ${col.name}`);
+        });
+        
+        return true;
+      }
+    }
+  } catch (error) {
+    dbConnectionStatus = 'ERROR';
+    console.error('❌ Database connection error:', error.message);
+    return false;
+  }
+  return false;
+};
 
 // CORS Configuration - UPDATED
 app.use(cors({
@@ -55,6 +88,9 @@ if (fs.existsSync(frontendDir)) {
   app.get('/', (req, res) => {
     res.sendFile(path.join(frontendDir, 'adminlogin.html'));
   });
+  console.log('🌐 Frontend directory found and mounted');
+} else {
+  console.log('⚠️ Frontend directory not found');
 }
 
 // Import additional routes
@@ -73,41 +109,49 @@ import adminlogin from './routes/adminlogin.mjs';
 import addtask from './routes/addtask.mjs';
 import helpRequests from './routes/help-requests.mjs';
 
-// Mount the routes
-app.use('/api/onboardstudents', onboardstudents);
-app.use('/api/onboardmentors', onboardmentors);
-app.use('/api/mentorstudentassignment', mentorstudentassignment);
-app.use('/api/mentordashboard', mentordashboard);
-app.use('/api/programs', programs);
-app.use('/api/tracks', tracks);
-app.use('/api/assessments', assessments);
-app.use('/api/resources', resources);
-app.use('/api/events',events);
-app.use('/api/cohorts', cohorts);
-app.use('/api/studentassignment', studentassignment);
-app.use('/api/auth', auth);
-app.use('/api/adminlogin', adminlogin);
-app.use('/api/user', user);
-app.use('/api/addassignment', addassignment);
-app.use('/api/accesscontrol', accesscontrol);
-app.use('/api/mentorship', mentorship);
-app.use('/api/internship', internship);
-app.use('/api/skillsdevelopment', skillsdevelopment);
-app.use('/api/modules', modules);
-app.use('/api/projects', projects);
-app.use('/api/announcements', announcements);
-app.use('/api/addtask', addtask);
-app.use('/api/help-requests', helpRequests);
+// Mount the routes with logging
+const routes = [
+  { path: '/api/onboardstudents', router: onboardstudents, name: 'Onboard Students' },
+  { path: '/api/onboardmentors', router: onboardmentors, name: 'Onboard Mentors' },
+  { path: '/api/mentorstudentassignment', router: mentorstudentassignment, name: 'Mentor Student Assignment' },
+  { path: '/api/mentordashboard', router: mentordashboard, name: 'Mentor Dashboard' },
+  { path: '/api/programs', router: programs, name: 'Programs' },
+  { path: '/api/tracks', router: tracks, name: 'Tracks' },
+  { path: '/api/assessments', router: assessments, name: 'Assessments' },
+  { path: '/api/resources', router: resources, name: 'Resources' },
+  { path: '/api/events', router: events, name: 'Events' },
+  { path: '/api/cohorts', router: cohorts, name: 'Cohorts' },
+  { path: '/api/studentassignment', router: studentassignment, name: 'Student Assignment' },
+  { path: '/api/auth', router: auth, name: 'Auth' },
+  { path: '/api/adminlogin', router: adminlogin, name: 'Admin Login' },
+  { path: '/api/user', router: user, name: 'User' },
+  { path: '/api/addassignment', router: addassignment, name: 'Add Assignment' },
+  { path: '/api/accesscontrol', router: accesscontrol, name: 'Access Control' },
+  { path: '/api/mentorship', router: mentorship, name: 'Mentorship' },
+  { path: '/api/internship', router: internship, name: 'Internship' },
+  { path: '/api/skillsdevelopment', router: skillsdevelopment, name: 'Skills Development' },
+  { path: '/api/modules', router: modules, name: 'Modules' },
+  { path: '/api/projects', router: projects, name: 'Projects' },
+  { path: '/api/announcements', router: announcements, name: 'Announcements' },
+  { path: '/api/addtask', router: addtask, name: 'Add Task' },
+  { path: '/api/help-requests', router: helpRequests, name: 'Help Requests' }
+];
+
+// Mount all routes with logging
+routes.forEach(route => {
+  app.use(route.path, route.router);
+  console.log(`✅ Route mounted: ${route.path} (${route.name})`);
+});
 
 // Basic middleware
-app.use(cors()); // enable CORS (you can configure origin instead of "*")
+app.use(cors());
 app.use(express.json());
 app.use(mongoSanitize());
-app.use(helmet()); // sensible defaults
+app.use(helmet());
 
 app.use(
   helmet.frameguard({
-    action: "deny", // use "sameorigin" if you need to allow framing by same origin
+    action: "deny",
   })
 );
 
@@ -115,53 +159,142 @@ app.use(
   helmet.contentSecurityPolicy({
     directives: {
       defaultSrc: ["'self'"],
-      // Block all framing (modern browsers)
-      frameAncestors: ["'none'"], // change to ["'self'"] if you prefer sameorigin behavior
-      // keep other directives minimal — expand as needed
+      frameAncestors: ["'none'"],
     },
   })
 );
 
-
-
-// Test route with CORS headers
+// Test route with connection status
 app.get('/api/test', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', 'http://localhost:5173');
   res.json({ 
     message: 'Server is working!',
+    status: 'OK',
+    database: dbConnectionStatus,
+    server: serverStatus,
     timestamp: new Date().toISOString()
   });
 });
 
 // Welcome route with logging
 app.get('/api/welcome', (req, res) => {
-  console.log(`Request received: ${req.method} ${req.path} from ${req.headers.origin}`);
+  console.log(`📥 Request received: ${req.method} ${req.path} from ${req.headers.origin}`);
   res.json({ 
     message: 'Welcome to the API Service!',
+    status: {
+      server: 'Running',
+      database: dbConnectionStatus,
+      port: PORT
+    },
     serverTime: new Date().toISOString(),
-    endpoints: [
-      '/api/onboardstudents',
-      '/api/onboardmentors',
-      '/api/assessments',
-      '/api/resources'
-    ]
+    endpoints: routes.map(r => r.path)
   });
 });
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
+// Health check endpoint with detailed status
+app.get('/api/health', async (req, res) => {
+  const dbHealthy = await checkDatabaseConnection();
+  
   res.json({
-    status: 'OK',
-    server: 'Running',
+    status: dbHealthy ? 'HEALTHY' : 'UNHEALTHY',
+    server: serverStatus,
+    database: dbConnectionStatus,
+    databaseHealthy: dbHealthy,
     port: PORT,
-    time: new Date().toISOString()
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+    memory: process.memoryUsage()
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server is running on port: ${PORT}`);
-  console.log(`🌐 Test endpoints:`);
-  console.log(`   http://localhost:${PORT}/api/test`);
-  console.log(`   http://localhost:${PORT}/api/health`);
-  console.log(`   http://localhost:${PORT}/api/welcome`);
+// Enhanced startup function
+const startServer = async () => {
+  try {
+    console.log('🚀 Starting OnTrack Connect Server...');
+    console.log('='.repeat(50));
+    
+    // Check database connection before starting
+    console.log('🔌 Checking database connection...');
+    const dbConnected = await checkDatabaseConnection();
+    
+    if (!dbConnected) {
+      console.warn('⚠️ Starting server without database connection');
+    }
+    
+    const server = app.listen(PORT, () => {
+      serverStatus = 'RUNNING';
+      
+      console.log('='.repeat(50));
+      console.log(`✅ Server is running on port: ${PORT}`);
+      console.log(`📡 Database status: ${dbConnectionStatus}`);
+      console.log('='.repeat(50));
+      console.log(`🌐 Test endpoints:`);
+      console.log(`   http://localhost:${PORT}/api/test`);
+      console.log(`   http://localhost:${PORT}/api/health`);
+      console.log(`   http://localhost:${PORT}/api/welcome`);
+      console.log('='.repeat(50));
+      console.log(`📊 Total routes mounted: ${routes.length}`);
+      console.log('='.repeat(50));
+      
+      // Log startup completion
+      console.log(`🎉 OnTrack Connect Server started successfully at ${new Date().toLocaleTimeString()}`);
+    });
+    
+    // Handle server errors
+    server.on('error', (error) => {
+      serverStatus = 'ERROR';
+      console.error('❌ Server error:', error);
+      
+      if (error.code === 'EADDRINUSE') {
+        console.error(`Port ${PORT} is already in use. Try a different port.`);
+        process.exit(1);
+      }
+    });
+    
+    // Handle graceful shutdown
+    process.on('SIGINT', () => {
+      console.log('\n🔴 Received SIGINT. Shutting down gracefully...');
+      serverStatus = 'STOPPING';
+      server.close(() => {
+        console.log('✅ Server shut down successfully');
+        process.exit(0);
+      });
+    });
+    
+    process.on('SIGTERM', () => {
+      console.log('\n🔴 Received SIGTERM. Shutting down gracefully...');
+      serverStatus = 'STOPPING';
+      server.close(() => {
+        console.log('✅ Server shut down successfully');
+        process.exit(0);
+      });
+    });
+    
+    return server;
+    
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
+  }
+};
+
+// Add a status endpoint to check server status
+app.get('/api/status', (req, res) => {
+  res.json({
+    server: {
+      status: serverStatus,
+      port: PORT,
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString()
+    },
+    database: {
+      status: dbConnectionStatus,
+      name: db?.databaseName || 'Not connected'
+    },
+    routes: routes.length,
+    environment: process.env.NODE_ENV || 'development'
+  });
 });
+
+// Start the server
+startServer();

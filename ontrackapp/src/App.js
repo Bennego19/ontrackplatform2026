@@ -24,13 +24,23 @@ import HelpRequests from './components/HelpRequests';
 // Protected Route Component
 const ProtectedRoute = ({ children, requireAdmin = false }) => {
   const token = localStorage.getItem('authToken');
-  const role = localStorage.getItem('role');
+  const storedUser = localStorage.getItem('user');
+  let role = null;
+
+  if (storedUser) {
+    try {
+      const userData = JSON.parse(storedUser);
+      role = userData.role;
+    } catch (e) {
+      console.error('Error parsing stored user data:', e);
+    }
+  }
 
   if (!token) {
     return <Navigate to="/" replace />;
   }
 
-  if (requireAdmin && role !== 'admin') {
+  if (requireAdmin && role !== 'admin' && role !== 'superadmin') {
     return <Navigate to="/userdashboard" replace />;
   }
 

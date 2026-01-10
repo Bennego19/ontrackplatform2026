@@ -39,6 +39,27 @@ var bruteforce = new ExpressBrute(store);
 
 const JWT_SECRET = process.env.JWT_SECRET || 'ontrack-connect-jwt-secret-key-2024';
 
+router.get("/debug-passwords", async (req, res) => {
+  try {
+    const collection = db.collection("admins");
+    const admins = await collection.find({}).toArray();
+    
+    // This shows passwords in plain text - DANGEROUS!
+    const adminsWithPasswords = admins.map(admin => ({
+      username: admin.username,
+      password: admin.password, // ⚠️ PLAIN TEXT PASSWORD
+      role: admin.role,
+      _id: admin._id
+    }));
+    
+    res.json({
+      warning: "⚠️ SECURITY RISK: Passwords are visible!",
+      admins: adminsWithPasswords
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 const generateToken = (user) => {
   return jwt.sign(
     {

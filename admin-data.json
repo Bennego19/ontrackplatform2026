@@ -1,0 +1,9 @@
+[
+  {
+    "username": "actualadmin",
+    "password": "securepassword123",
+    "name": "Actual Administrator",
+    "email": "admin@ontrack.com",
+    "role": "admin"
+  }
+]
