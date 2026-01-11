@@ -221,7 +221,7 @@ const startServer = async () => {
       console.warn('⚠️ Starting server without database connection');
     }
     
-    const server = app.listen(PORT, () => {
+    const server = app.listen(PORT,'0.0.0.0', () => {
       serverStatus = 'RUNNING';
       
       console.log('='.repeat(50));
