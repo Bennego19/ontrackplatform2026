@@ -103,14 +103,15 @@ export const authAPI = {
     // Send ONLY username, not email
     const payload = { username, password };
 
-    const response = await fetch(
-      `/api/onboardstudents/login`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      }
-    );
+    // Determine which endpoint to use based on username
+    const isAdminLogin = username.toLowerCase() === 'admin';
+    const endpoint = isAdminLogin ? '/api/adminlogin/adminlogin' : '/api/onboardstudents/login';
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
 
     const data = await response.json();
     if (!response.ok) {

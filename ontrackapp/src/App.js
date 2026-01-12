@@ -25,12 +25,12 @@ import HelpRequests from './components/HelpRequests';
 const ProtectedRoute = ({ children, requireAdmin = false }) => {
   const token = localStorage.getItem('authToken');
   const storedUser = localStorage.getItem('user');
-  let role = null;
+  let username = null;
 
   if (storedUser) {
     try {
       const userData = JSON.parse(storedUser);
-      role = userData.role;
+      username = userData.username;
     } catch (e) {
       console.error('Error parsing stored user data:', e);
     }
@@ -40,7 +40,7 @@ const ProtectedRoute = ({ children, requireAdmin = false }) => {
     return <Navigate to="/" replace />;
   }
 
-  if (requireAdmin && role !== 'admin' && role !== 'superadmin') {
+  if (requireAdmin && username?.toLowerCase() !== 'admin') {
     return <Navigate to="/userdashboard" replace />;
   }
 

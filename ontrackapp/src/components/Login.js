@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authAPI } from '../services/authMiddleware';
 import { tokenManager } from '../services/authMiddleware';
@@ -6,50 +6,62 @@ import './Dashboard.css'; // Reuse the CSS
 
 const Login = () => {
   const navigate = useNavigate();
-  
+
   // Login form state
   const [activeTab, setActiveTab] = useState('admin');
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const [credentials, setCredentials] = useState({ 
-    username: '', 
+  const [credentials, setCredentials] = useState({
+    username: '',
     password: ''
   });
+  const [validationErrors, setValidationErrors] = useState({});
+  const [attempts, setAttempts] = useState(0);
+const handleLogin = async (e) => {
+  e.preventDefault();
+  
+  // Remove tab-based validation - only check form fields
+  if (!credentials.username || !credentials.password) {
+    setLoginError('Username and password are required');
+    return;
+  }
+  
+  setIsLoggingIn(true);
+  setLoginError('');
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setIsLoggingIn(true);
-    setLoginError('');
+  try {
+    // Use ONLY ONE login endpoint - no admin/student distinction
+    const response = await authAPI.login(credentials.username, credentials.password);
+    
+    console.log('Login response:', response); // Debug logging
+    console.log('User object:', response.user); // Debug logging
 
-    try {
-      let response;
-      if (activeTab === 'admin') {
-        response = await authAPI.adminLogin(credentials.username, credentials.password);
+    if (response.success) {
+      tokenManager.setToken(response.token);
+      tokenManager.setStoredUser(response.user);
+
+      // Simple username-based routing
+      // If username is "admin" (case-insensitive), go to /dashboard
+      // All other usernames go to /userdashboard
+      const username = response.user.username || '';
+      
+      if (username.toLowerCase() === 'admin') {
+        console.log('Routing to admin dashboard for user:', username);
+        navigate('/dashboard');
       } else {
-        response = await authAPI.login(credentials.username, credentials.password);
+        console.log('Routing to user dashboard for user:', username);
+        navigate('/userdashboard');
       }
-
-      if (response.success) {
-        tokenManager.setToken(response.token);
-        tokenManager.setStoredUser(response.user);
-
-        // Redirect based on role
-        if (response.user.role === 'admin' || response.user.role === 'superadmin') {
-          navigate('/dashboard');
-        } else {
-          navigate('/userdashboard');
-        }
-      } else {
-        setLoginError(response.message || 'Login failed');
-      }
-    } catch (error) {
-      console.error('Login error:', error);
-      setLoginError('Login failed. Please try again.');
-    } finally {
-      setIsLoggingIn(false);
+    } else {
+      setLoginError(response.message || 'Login failed. Check username/password.');
     }
-  };
-
+  } catch (error) {
+    console.error('Login error:', error);
+    setLoginError('Server error. Please try again later.');
+  } finally {
+    setIsLoggingIn(false);
+  }
+};
   const handleInputChange = (e) => {
     setCredentials({
       ...credentials,
