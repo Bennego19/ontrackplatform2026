@@ -35,6 +35,15 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Redirect middleware for www.ontrackconnect.co.za to https://ontrackconnect.co.za
+app.use((req, res, next) => {
+  const host = req.headers.host;
+  if (host === 'www.ontrackconnect.co.za') {
+    return res.redirect(301, 'https://ontrackconnect.co.za');
+  }
+  next();
+});
+
 // Add connection status tracking
 let dbConnectionStatus = 'DISCONNECTED';
 let serverStatus = 'STOPPED';
