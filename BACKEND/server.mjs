@@ -6,7 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import helmet from 'helmet';
 import mongoSanitize from 'express-mongo-sanitize';
-import db from './db/conn.mjs';
+import mongoose from 'mongoose';
 
 // Initialize environment variables
 dotenv.config();
@@ -18,6 +18,7 @@ const __dirname = path.dirname(__filename);
 // Constants
 const PORT = process.env.PORT || 3001;
 const NODE_ENV = process.env.NODE_ENV || 'development';
+const MONGODB_URI = process.env.MONGODB_URI;
 const uploadsDir = path.join(__dirname, 'uploads');
 
 // Create uploads directory if it doesn't exist
@@ -32,6 +33,111 @@ const app = express();
 // Connection status tracking
 let dbConnectionStatus = 'DISCONNECTED';
 let serverStatus = 'STOPPED';
+let mongooseConnection = null;
+
+// ======================
+// DATABASE CONNECTION
+// ======================
+
+const connectDatabase = async () => {
+    try {
+        if (!MONGODB_URI) {
+            throw new Error('MONGODB_URI is not defined in environment variables');
+        }
+
+        console.log('🔌 Connecting to MongoDB...');
+        
+        const options = {
+            useNewUrlParser: true,
+            useUnifiedTopology: true,
+            serverSelectionTimeoutMS: 5000,
+            socketTimeoutMS: 45000,
+            family: 4
+        };
+
+        await mongoose.connect(MONGODB_URI, options);
+        mongooseConnection = mongoose.connection;
+
+        // Event listeners for MongoDB connection
+        mongooseConnection.on('connected', () => {
+            dbConnectionStatus = 'CONNECTED';
+            console.log('✅ MongoDB connected successfully');
+        });
+
+        mongooseConnection.on('error', (err) => {
+            dbConnectionStatus = 'ERROR';
+            console.error('❌ MongoDB connection error:', err.message);
+        });
+
+        mongooseConnection.on('disconnected', () => {
+            dbConnectionStatus = 'DISCONNECTED';
+            console.log('⚠️ MongoDB disconnected');
+        });
+
+        // Initial connection check
+        if (mongooseConnection.readyState === 1) {
+            dbConnectionStatus = 'CONNECTED';
+            console.log('✅ MongoDB is already connected');
+        }
+
+        return mongooseConnection;
+    } catch (error) {
+        console.error('❌ Failed to connect to MongoDB:', error.message);
+        dbConnectionStatus = 'ERROR';
+        
+        // Retry connection after 5 seconds
+        console.log('🔄 Retrying connection in 5 seconds...');
+        setTimeout(connectDatabase, 5000);
+        
+        return null;
+    }
+};
+
+// Database connection check function
+const checkDatabaseConnection = async () => {
+    try {
+        if (mongooseConnection && mongooseConnection.readyState === 1) {
+            const db = mongooseConnection.db;
+            
+            // Ping database
+            await db.command({ ping: 1 });
+            
+            // Get database info
+            const dbName = db.databaseName;
+            const collections = await db.listCollections().toArray();
+            
+            console.log('✅ Database connection: CONNECTED');
+            console.log(`📊 Database name: ${dbName}`);
+            console.log(`📁 Collections found: ${collections.length}`);
+            collections.forEach(col => {
+                console.log(`   - ${col.name}`);
+            });
+            
+            dbConnectionStatus = 'CONNECTED';
+            return true;
+        } else {
+            console.log('❌ Database not connected. ReadyState:', mongooseConnection?.readyState);
+            dbConnectionStatus = 'DISCONNECTED';
+            return false;
+        }
+    } catch (error) {
+        console.error('❌ Database check error:', error.message);
+        dbConnectionStatus = 'ERROR';
+        return false;
+    }
+};
+
+// Export database connection for use in routes
+export const getDatabase = () => {
+    if (mongooseConnection && mongooseConnection.readyState === 1) {
+        return mongooseConnection.db;
+    }
+    throw new Error('Database not connected');
+};
+
+export const getMongoose = () => {
+    return mongoose;
+};
 
 // ======================
 // SECURITY MIDDLEWARE
@@ -49,9 +155,8 @@ const corsOptions = {
             'http://localhost:8080'
         ]
         : [
-            'https://ontrackconnect.co.za',
-            'https://www.ontrackconnect.co.za',
             'https://platform.ontrackconnect.co.za',
+            'https://www.platform.ontrackconnect.co.za',
             'http://platform.ontrackconnect.co.za' // For testing
         ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
@@ -94,6 +199,8 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Production domain redirection
 if (NODE_ENV === 'production') {
+    app.set('trust proxy', 1); // Trust proxy headers
+    
     app.use((req, res, next) => {
         const host = req.headers.host;
         const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
@@ -130,43 +237,6 @@ if (fs.existsSync(frontendDir)) {
 } else {
     console.log('⚠️ Frontend directory not found');
 }
-
-// ======================
-// DATABASE CONNECTION CHECK
-// ======================
-
-const checkDatabaseConnection = async () => {
-    try {
-        if (db) {
-            const adminDb = db.admin();
-            const pingResult = await adminDb.ping();
-            
-            if (pingResult && pingResult.ok === 1) {
-                dbConnectionStatus = 'CONNECTED';
-                
-                // Get database info
-                const dbName = db.databaseName;
-                const collections = await db.listCollections().toArray();
-                
-                console.log('✅ Database connection: CONNECTED');
-                console.log(`📊 Database name: ${dbName}`);
-                console.log(`📁 Collections found: ${collections.length}`);
-                collections.forEach(col => {
-                    console.log(`   - ${col.name}`);
-                });
-                
-                return true;
-            }
-        }
-    } catch (error) {
-        dbConnectionStatus = 'ERROR';
-        console.error('❌ Database connection error:', error.message);
-        return false;
-    }
-    
-    dbConnectionStatus = 'DISCONNECTED';
-    return false;
-};
 
 // ======================
 // IMPORT ROUTES
@@ -226,6 +296,14 @@ const routes = [
     { path: '/api/help-requests', router: helpRequests, name: 'Help Requests' }
 ];
 
+// Middleware to inject database into routes
+app.use((req, res, next) => {
+    // Attach database connection to request object
+    req.db = getDatabase;
+    req.mongoose = getMongoose;
+    next();
+});
+
 // Mount all routes
 routes.forEach(route => {
     app.use(route.path, route.router);
@@ -242,17 +320,31 @@ app.use((req, res, next) => {
     next();
 });
 
-// Test endpoint
-app.get('/api/test', (req, res) => {
-    res.json({
-        message: 'Server is working!',
-        status: 'OK',
-        environment: NODE_ENV,
-        database: dbConnectionStatus,
-        server: serverStatus,
-        domain: req.headers.host,
-        timestamp: new Date().toISOString()
-    });
+// Test endpoint with database retrieval
+app.get('/api/test-db', async (req, res) => {
+    try {
+        const db = getDatabase();
+        
+        // Test by listing collections
+        const collections = await db.listCollections().toArray();
+        
+        res.json({
+            message: 'Database test successful!',
+            status: 'OK',
+            database: db.databaseName,
+            collections: collections.map(col => col.name),
+            environment: NODE_ENV,
+            connectionStatus: dbConnectionStatus,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        res.status(500).json({
+            error: 'Database test failed',
+            message: error.message,
+            connectionStatus: dbConnectionStatus,
+            timestamp: new Date().toISOString()
+        });
+    }
 });
 
 // Welcome endpoint
@@ -303,7 +395,8 @@ app.get('/api/status', (req, res) => {
         },
         database: {
             status: dbConnectionStatus,
-            name: db?.databaseName || 'Not connected'
+            connected: mongooseConnection?.readyState === 1,
+            name: mongooseConnection?.db?.databaseName || 'Not connected'
         },
         routes: routes.length,
         cors: {
@@ -311,6 +404,26 @@ app.get('/api/status', (req, res) => {
             methods: corsOptions.methods
         }
     });
+});
+
+// Example data retrieval endpoint
+app.get('/api/users', async (req, res) => {
+    try {
+        const db = getDatabase();
+        const usersCollection = db.collection('users');
+        const users = await usersCollection.find({}).limit(10).toArray();
+        
+        res.json({
+            success: true,
+            count: users.length,
+            users: users
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
 });
 
 // Catch-all for undefined routes
@@ -336,6 +449,32 @@ app.use((err, req, res, next) => {
 });
 
 // ======================
+// SAMPLE ROUTE FOR RETRIEVAL
+// ======================
+
+// Add this as a demonstration of proper retrieval
+app.get('/api/demo/users', async (req, res) => {
+    try {
+        const db = getDatabase();
+        const users = await db.collection('users').find({}).toArray();
+        
+        res.json({
+            success: true,
+            message: 'Data retrieval successful',
+            count: users.length,
+            data: users
+        });
+    } catch (error) {
+        console.error('Error retrieving users:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to retrieve data',
+            details: error.message
+        });
+    }
+});
+
+// ======================
 // SERVER STARTUP
 // ======================
 
@@ -348,12 +487,17 @@ const startServer = async () => {
         console.log(`🏠 Host: ${NODE_ENV === 'production' ? 'platform.ontrackconnect.co.za' : 'localhost'}`);
         console.log('='.repeat(60));
         
+        // Connect to database first
+        console.log('🔌 Connecting to database...');
+        await connectDatabase();
+        
         // Check database connection
-        console.log('🔌 Checking database connection...');
         const dbConnected = await checkDatabaseConnection();
         
         if (!dbConnected) {
-            console.warn('⚠️ Starting server without database connection');
+            console.warn('⚠️ Starting server without database connection - some features may not work');
+        } else {
+            console.log('✅ Database connection established and verified');
         }
         
         // Start server
@@ -366,9 +510,10 @@ const startServer = async () => {
             console.log('='.repeat(60));
             console.log(`🌐 Access URLs:`);
             console.log(`   Local: http://localhost:${PORT}`);
-            console.log(`   API Test: http://localhost:${PORT}/api/test`);
+            console.log(`   API Test: http://localhost:${PORT}/api/test-db`);
             console.log(`   Health Check: http://localhost:${PORT}/api/health`);
             console.log(`   Status: http://localhost:${PORT}/api/status`);
+            console.log(`   Users Demo: http://localhost:${PORT}/api/demo/users`);
             
             if (NODE_ENV === 'production') {
                 console.log(`   Production: https://platform.ontrackconnect.co.za`);
@@ -407,7 +552,13 @@ const startServer = async () => {
             console.log(`\n🔴 Received ${signal}. Shutting down gracefully...`);
             serverStatus = 'STOPPING';
             
-            server.close(() => {
+            server.close(async () => {
+                // Close database connection
+                if (mongooseConnection) {
+                    await mongooseConnection.close();
+                    console.log('✅ Database connection closed');
+                }
+                
                 console.log('✅ Server shut down successfully');
                 process.exit(0);
             });
@@ -433,12 +584,10 @@ const startServer = async () => {
 // Global error handlers to prevent server exit on uncaught errors
 process.on('uncaughtException', (err) => {
     console.error('❌ Uncaught Exception:', err);
-    // Log but don't exit
 });
 
 process.on('unhandledRejection', (reason, promise) => {
     console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
-    // Log but don't exit
 });
 
 // Start the server
