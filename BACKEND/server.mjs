@@ -430,6 +430,17 @@ const startServer = async () => {
     }
 };
 
+// Global error handlers to prevent server exit on uncaught errors
+process.on('uncaughtException', (err) => {
+    console.error('❌ Uncaught Exception:', err);
+    // Log but don't exit
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+    // Log but don't exit
+});
+
 // Start the server
 startServer();
 
