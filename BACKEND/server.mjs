@@ -72,7 +72,7 @@ const checkDatabaseConnection = async () => {
 
 // CORS Configuration - UPDATED
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:3002', 'http://localhost:3003', 'http://localhost:5173', 'http://localhost:8080'],
+  origin: ['http://localhost:3000', 'http://localhost:3002', 'http://localhost:3003', 'http://localhost:5173', 'http://localhost:8080', 'https://platform.ontrackconnect.co.za/'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
