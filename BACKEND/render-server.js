@@ -1,5 +1,5 @@
 // BACKEND/render-server.js
-import app from './server.js';
+import app from './server.mjs';
 import http from 'http';
 
 const PORT = process.env.PORT || 3000;
