@@ -70,16 +70,36 @@ const checkDatabaseConnection = async () => {
   return false;
 };
 
-// CORS Configuration - UPDATED
-app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:3002', 'http://localhost:3003', 'http://localhost:5173', 'http://localhost:8080', 'https://platform.ontrackconnect.co.za/'],
+// CORS Configuration - UPDATED for production
+const corsOptions = {
+  origin: process.env.NODE_ENV === 'production' 
+    ? ['https://platform.ontrackconnect.co.za']
+    : ['http://localhost:3000', 'http://localhost:3002', 'http://localhost:3003', 'http://localhost:5173', 'http://localhost:8080'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
-}));
+};
 
-app.use(express.json());
+app.use(cors(corsOptions));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/uploads', express.static('uploads'));
+
+// Security middleware
+app.use(mongoSanitize());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'"],
+      frameAncestors: ["'none'"]
+    }
+  },
+  frameguard: { action: 'deny' }
+}));
 
 // Serve frontend admin login as landing page if available
 const frontendDir = path.join(__dirname, '..', 'frontend html');
@@ -143,35 +163,14 @@ routes.forEach(route => {
   console.log(`✅ Route mounted: ${route.path} (${route.name})`);
 });
 
-// Basic middleware
-app.use(cors());
-app.use(express.json());
-app.use(mongoSanitize());
-app.use(helmet());
-
-app.use(
-  helmet.frameguard({
-    action: "deny",
-  })
-);
-
-app.use(
-  helmet.contentSecurityPolicy({
-    directives: {
-      defaultSrc: ["'self'"],
-      frameAncestors: ["'none'"],
-    },
-  })
-);
-
 // Test route with connection status
 app.get('/api/test', (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', 'http://localhost:5173');
   res.json({ 
     message: 'Server is working!',
     status: 'OK',
     database: dbConnectionStatus,
     server: serverStatus,
+    environment: process.env.NODE_ENV || 'development',
     timestamp: new Date().toISOString()
   });
 });
@@ -180,7 +179,7 @@ app.get('/api/test', (req, res) => {
 app.get('/api/welcome', (req, res) => {
   console.log(`📥 Request received: ${req.method} ${req.path} from ${req.headers.origin}`);
   res.json({ 
-    message: 'Welcome to the API Service!',
+    message: 'Welcome to OnTrack Connect API Service!',
     status: {
       server: 'Running',
       database: dbConnectionStatus,
@@ -201,82 +200,16 @@ app.get('/api/health', async (req, res) => {
     database: dbConnectionStatus,
     databaseHealthy: dbHealthy,
     port: PORT,
+    environment: process.env.NODE_ENV || 'development',
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
-    memory: process.memoryUsage()
+    memory: {
+      rss: `${Math.round(process.memoryUsage().rss / 1024 / 1024)} MB`,
+      heapTotal: `${Math.round(process.memoryUsage().heapTotal / 1024 / 1024)} MB`,
+      heapUsed: `${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)} MB`
+    }
   });
 });
-
-// Enhanced startup function
-const startServer = async () => {
-  try {
-    console.log('🚀 Starting OnTrack Connect Server...');
-    console.log('='.repeat(50));
-    
-    // Check database connection before starting
-    console.log('🔌 Checking database connection...');
-    const dbConnected = await checkDatabaseConnection();
-    
-    if (!dbConnected) {
-      console.warn('⚠️ Starting server without database connection');
-    }
-    
-    const server = app.listen(PORT,'0.0.0.0', () => {
-      serverStatus = 'RUNNING';
-      
-      console.log('='.repeat(50));
-      console.log(`✅ Server is running on port: ${PORT}`);
-      console.log(`📡 Database status: ${dbConnectionStatus}`);
-      console.log('='.repeat(50));
-      console.log(`🌐 Test endpoints:`);
-      console.log(`   http://localhost:${PORT}/api/test`);
-      console.log(`   http://localhost:${PORT}/api/health`);
-      console.log(`   http://localhost:${PORT}/api/welcome`);
-      console.log('='.repeat(50));
-      console.log(`📊 Total routes mounted: ${routes.length}`);
-      console.log('='.repeat(50));
-      
-      // Log startup completion
-      console.log(`🎉 OnTrack Connect Server started successfully at ${new Date().toLocaleTimeString()}`);
-    });
-    
-    // Handle server errors
-    server.on('error', (error) => {
-      serverStatus = 'ERROR';
-      console.error('❌ Server error:', error);
-      
-      if (error.code === 'EADDRINUSE') {
-        console.error(`Port ${PORT} is already in use. Try a different port.`);
-        process.exit(1);
-      }
-    });
-    
-    // Handle graceful shutdown
-    process.on('SIGINT', () => {
-      console.log('\n🔴 Received SIGINT. Shutting down gracefully...');
-      serverStatus = 'STOPPING';
-      server.close(() => {
-        console.log('✅ Server shut down successfully');
-        process.exit(0);
-      });
-    });
-    
-    process.on('SIGTERM', () => {
-      console.log('\n🔴 Received SIGTERM. Shutting down gracefully...');
-      serverStatus = 'STOPPING';
-      server.close(() => {
-        console.log('✅ Server shut down successfully');
-        process.exit(0);
-      });
-    });
-    
-    return server;
-    
-  } catch (error) {
-    console.error('❌ Failed to start server:', error);
-    process.exit(1);
-  }
-};
 
 // Add a status endpoint to check server status
 app.get('/api/status', (req, res) => {
@@ -296,5 +229,144 @@ app.get('/api/status', (req, res) => {
   });
 });
 
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({
+    message: 'OnTrack Connect API Server',
+    version: '1.0.0',
+    environment: process.env.NODE_ENV || 'development',
+    status: 'running',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// 404 handler
+app.use('*', (req, res) => {
+  res.status(404).json({
+    error: 'Route not found',
+    path: req.originalUrl,
+    method: req.method,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('❌ Server Error:', err);
+  
+  res.status(err.status || 500).json({
+    error: err.message || 'Internal Server Error',
+    status: 'ERROR',
+    timestamp: new Date().toISOString(),
+    path: req.path
+  });
+});
+
+// Enhanced startup function
+const startServer = async () => {
+  try {
+    console.log('🚀 Starting OnTrack Connect Server...');
+    console.log('='.repeat(50));
+    console.log(`📦 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`🔧 Port: ${PORT}`);
+    console.log(`🏠 Host: 0.0.0.0`);
+    console.log('='.repeat(50));
+    
+    // Check database connection before starting
+    console.log('🔌 Checking database connection...');
+    const dbConnected = await checkDatabaseConnection();
+    
+    if (!dbConnected) {
+      console.warn('⚠️ Starting server without database connection');
+    } else {
+      console.log('✅ Database connection established');
+    }
+    
+    const server = app.listen(PORT, '0.0.0.0', () => {
+      serverStatus = 'RUNNING';
+      
+      console.log('='.repeat(50));
+      console.log(`✅ Server is running on port: ${PORT}`);
+      console.log(`📡 Database status: ${dbConnectionStatus}`);
+      console.log('='.repeat(50));
+      console.log(`🌐 Access URLs:`);
+      console.log(`   Local: http://localhost:${PORT}`);
+      console.log(`   API Test: http://localhost:${PORT}/api/test`);
+      console.log(`   Health Check: http://localhost:${PORT}/api/health`);
+      console.log(`   Status: http://localhost:${PORT}/api/status`);
+      console.log('='.repeat(50));
+      
+      if (process.env.NODE_ENV === 'production') {
+        console.log(`   Production: https://platform.ontrackconnect.co.za`);
+        console.log('='.repeat(50));
+      }
+      
+      console.log(`📊 Total routes mounted: ${routes.length}`);
+      console.log('='.repeat(50));
+      console.log(`🎉 OnTrack Connect Server started successfully!`);
+      console.log(`⏰ Time: ${new Date().toLocaleTimeString()}`);
+      console.log('='.repeat(50));
+    });
+    
+    // Handle server errors
+    server.on('error', (error) => {
+      serverStatus = 'ERROR';
+      console.error('❌ Server error:', error.message);
+      
+      if (error.code === 'EADDRINUSE') {
+        console.error(`💡 Port ${PORT} is already in use. Try:`);
+        console.error(`   1. Change PORT in .env file to another number (e.g., 3002)`);
+        console.error(`   2. Kill the process using port ${PORT}`);
+        console.error(`   3. Run: npx kill-port ${PORT}`);
+      } else if (error.code === 'EACCES') {
+        console.error(`🔒 Permission denied for port ${PORT}. Try:`);
+        console.error(`   1. Use a port above 1024 (e.g., 3001, 5000, 8080)`);
+        console.error(`   2. Run as administrator (Windows)`);
+        console.error(`   3. Change PORT in .env file`);
+      }
+      
+      process.exit(1);
+    });
+    
+    // Handle graceful shutdown
+    const shutdown = (signal) => {
+      console.log(`\n🔴 Received ${signal}. Shutting down gracefully...`);
+      serverStatus = 'STOPPING';
+      
+      server.close(() => {
+        console.log('✅ Server shut down successfully');
+        process.exit(0);
+      });
+      
+      // Force shutdown after 10 seconds
+      setTimeout(() => {
+        console.error('⚠️ Forcing shutdown after timeout');
+        process.exit(1);
+      }, 10000);
+    };
+    
+    process.on('SIGINT', () => shutdown('SIGINT'));
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    
+    // Global error handlers
+    process.on('uncaughtException', (err) => {
+      console.error('❌ Uncaught Exception:', err);
+    });
+    
+    process.on('unhandledRejection', (reason, promise) => {
+      console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+    });
+    
+    return server;
+    
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
+  }
+};
+
 // Start the server
 startServer();
+
+// CRITICAL: Export the app for Render
+export default app;
