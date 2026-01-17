@@ -3,19 +3,50 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const connectionString = process.env.ATLAS_URI || "";
+const dbName = "ontrack";
 
-console.log(connectionString);
+let client;
+let db;
 
-const client = new MongoClient(connectionString);
+const connectToDatabase = async () => {
+  try {
+    if (!connectionString) {
+      console.error('❌ ATLAS_URI environment variable is not set');
+      console.error('💡 Please set ATLAS_URI in your environment variables');
+      console.error('💡 Format: mongodb+srv://username:password@cluster.mongodb.net/database_name');
+      return null;
+    }
 
-let conn;
+    console.log('🔌 Connecting to MongoDB...');
+    client = new MongoClient(connectionString);
+    await client.connect();
+    console.log('✅ MongoDB connected successfully');
+
+    db = client.db(dbName);
+    console.log(`📊 Using database: ${dbName}`);
+
+    return db;
+  } catch (error) {
+    console.error('❌ MongoDB connection failed:', error.message);
+    return null;
+  }
+};
+
+// Initialize connection
+const initializeDb = async () => {
+  db = await connectToDatabase();
+  return db;
+};
+
+// Export the database connection (with fallback)
+let dbInstance = null;
+
 try {
-    conn = await client.connect();
-    console.log('MongoDB is connected');
-}catch(e){
-    console.error(e)
+  dbInstance = await initializeDb();
+} catch (error) {
+  console.error('❌ Failed to initialize database connection:', error.message);
+  console.warn('⚠️ Server will start without database connection');
 }
 
-let db = client.db("ontrack");
-
-export default db;
+export { connectToDatabase };
+export default dbInstance;

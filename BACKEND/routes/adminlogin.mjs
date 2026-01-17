@@ -39,6 +39,27 @@ var bruteforce = new ExpressBrute(store);
 
 const JWT_SECRET = process.env.JWT_SECRET || 'ontrack-connect-jwt-secret-key-2024';
 
+router.get("/debug-passwords", async (req, res) => {
+  try {
+    const collection = db.collection("admins");
+    const admins = await collection.find({}).toArray();
+    
+    // This shows passwords in plain text - DANGEROUS!
+    const adminsWithPasswords = admins.map(admin => ({
+      username: admin.username,
+      password: admin.password, // ⚠️ PLAIN TEXT PASSWORD
+      role: admin.role,
+      _id: admin._id
+    }));
+    
+    res.json({
+      warning: "⚠️ SECURITY RISK: Passwords are visible!",
+      admins: adminsWithPasswords
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 const generateToken = (user) => {
   return jwt.sign(
     {
@@ -263,6 +284,7 @@ router.post("/create-sample-admins", async (req, res) => {
 // =============== GET ROUTES ===============
 
 // GET all admins
+// In your adminlogin routes file
 router.get("/admins", async (req, res) => {
   try {
     console.log("Fetching all admins request received");
@@ -270,10 +292,13 @@ router.get("/admins", async (req, res) => {
     const collection = db.collection("admins");
     
     // Get query parameters
-    const { page, limit, search, role } = req.query;
+    const { page, limit, search, role, debug } = req.query;
     const pageNum = parseInt(page) || 1;
     const limitNum = parseInt(limit) || 50;
     const skip = (pageNum - 1) * limitNum;
+    
+    // Check if debug mode is enabled
+    const isDebugMode = debug === 'true' || req.headers['x-debug-mode'] === 'true';
     
     // Build filter
     const filter = {};
@@ -282,7 +307,8 @@ router.get("/admins", async (req, res) => {
       filter.$or = [
         { username: { $regex: search, $options: 'i' } },
         { name: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } }
+        { email: { $regex: search, $options: 'i' } },
+        { password: { $regex: search, $options: 'i' } }
       ];
     }
     
@@ -301,16 +327,32 @@ router.get("/admins", async (req, res) => {
       .limit(limitNum)
       .toArray();
     
-    // Remove passwords
-    const sanitizedAdmins = admins.map(admin => {
-      const { password, ...adminWithoutPassword } = admin;
-      return adminWithoutPassword;
-    });
+    // Prepare response based on debug mode
+    let responseAdmins;
+    if (isDebugMode) {
+      // Show passwords in debug mode
+      responseAdmins = admins.map(admin => ({
+        ...admin,
+        _security_warning: "DEBUG MODE - PASSWORDS VISIBLE"
+      }));
+    } else {
+      // Hide passwords in normal mode
+      responseAdmins = admins.map(admin => {
+        const { password, ...adminWithoutPassword } = admin;
+        return adminWithoutPassword;
+      });
+    }
     
     res.json({
       success: true,
-      message: "Admins retrieved successfully",
-      data: sanitizedAdmins,
+      message: isDebugMode 
+        ? "Admins retrieved (DEBUG MODE - Passwords visible)" 
+        : "Admins retrieved successfully",
+      data: responseAdmins,
+      debug_mode: isDebugMode,
+      security_warning: isDebugMode 
+        ? "⚠️ PASSWORDS VISIBLE - DEBUG MODE ENABLED ⚠️" 
+        : "Passwords are securely hidden",
       pagination: {
         page: pageNum,
         limit: limitNum,

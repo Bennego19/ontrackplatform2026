@@ -5,7 +5,7 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { authenticateToken } from "../middleware/auth.js";
 import ExpressBrute from "express-brute";
-import { tokenManager } from "../../ontrackapp/src/services/authMiddleware.js";
+
 const router = express.Router();
 router.use((req,res,next) =>{
     res.setHeader('X-Frame-Options','DENY');
