@@ -49,13 +49,52 @@ if (!fs.existsSync(uploadsDir)) {
 }
 
 /* MIDDLEWARE */
-app.use(cors({
-  origin: process.env.NODE_ENV === "production"
-    ? ["https://platformontrackconnect.co.za"]
-    : ["http://localhost:3001"],
+// CORS Configuration for all environments
+const corsOptions = {
+  origin: (origin, callback) => {
+    // List of allowed origins
+    const allowedOrigins = [
+      // Production origins
+      'https://platformontrackconnect.co.za',
+      'https://www.platformontrackconnect.co.za',
+      'https://ontrackplatform2026-5.onrender.com',
+      
+      // Development origins
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'http://127.0.0.1:3000',
+      'http://127.0.0.1:3001',
+    ];
+    
+    // Allow requests with no origin (like mobile apps or curl)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    } else {
+      console.log('CORS blocked origin:', origin);
+      return callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
-}));
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: [
+    'Content-Type', 
+    'Authorization', 
+    'X-Requested-With',
+    'Accept',
+    'Origin',
+    'Access-Control-Allow-Origin',
+    'Access-Control-Allow-Credentials'
+  ],
+  exposedHeaders: ['Content-Range', 'X-Content-Range'],
+  maxAge: 86400, // 24 hours
+};
 
+app.use(cors(corsOptions));
+
+// Handle preflight requests
+app.options('*', cors(corsOptions));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use("/uploads", express.static(uploadsDir));
@@ -113,6 +152,80 @@ app.get("/", (req, res) => {
   res.json({
     message: "OnTrack Connect API",
     status: "RUNNING",
+  });
+});
+// ====== ADD THESE ROUTES ======
+
+// Welcome endpoint
+app.get('/api/welcome', (req, res) => {
+  res.json({
+    message: 'Welcome to OnTrack Connect API!',
+    version: '1.0.0',
+    environment: process.env.NODE_ENV || 'development',
+    status: 'running',
+    timestamp: new Date().toISOString(),
+    availableEndpoints: [
+      '/api/health',
+      '/api/onboardstudents',
+      '/api/onboardmentors',
+      '/api/programs',
+      '/api/tracks',
+      '/api/assessments',
+      '/api/events',
+      '/api/cohorts'
+    ]
+  });
+});
+
+// Test endpoint
+app.get('/api/test', (req, res) => {
+  res.json({
+    message: 'Test endpoint working!',
+    status: 'OK',
+    serverTime: new Date().toISOString(),
+    database: 'Connected (based on health check)',
+    uptime: process.uptime()
+  });
+});
+
+// Debug DB endpoint
+app.get('/api/debug-db', async (req, res) => {
+  try {
+    const db = await getDb();
+    const collections = await db.listCollections().toArray();
+    
+    res.json({
+      success: true,
+      database: db.databaseName,
+      collections: collections.map(c => c.name),
+      totalCollections: collections.length,
+      hasConnection: true,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.json({
+      success: false,
+      error: error.message,
+      hasConnection: false,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Status endpoint
+app.get('/api/status', (req, res) => {
+  res.json({
+    server: {
+      status: 'RUNNING',
+      port: process.env.PORT || 3000,
+      uptime: process.uptime(),
+      environment: process.env.NODE_ENV || 'development',
+      timestamp: new Date().toISOString()
+    },
+    endpoints: {
+      working: ['/', '/api/health'],
+      needsSetup: ['/api/welcome', '/api/test', '/api/debug-db', '/api/status']
+    }
   });
 });
 
