@@ -1,4 +1,4 @@
-import { MongoClient } from "mongodb";
+import { MongoClient, ServerApiVersion } from "mongodb";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -9,12 +9,22 @@ const dbName = "ontrack";
 let client = null;
 let db = null;
 
-// Connection options
+// MODERN CONNECTION OPTIONS (Node Driver v4+)
 const clientOptions = {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-  serverSelectionTimeoutMS: 5000,
-  socketTimeoutMS: 45000,
+  serverApi: {
+    version: ServerApiVersion.v1,
+    strict: true,
+    deprecationErrors: true,
+  },
+  // Timeout settings
+  serverSelectionTimeoutMS: 5000,    // 5 seconds
+  socketTimeoutMS: 45000,            // 45 seconds
+  connectTimeoutMS: 10000,           // 10 seconds
+  
+  // Connection pool settings
+  maxPoolSize: 10,
+  minPoolSize: 1,
+  maxIdleTimeMS: 30000,             // Close idle connections after 30 seconds
 };
 
 const connectToDatabase = async () => {
@@ -22,23 +32,17 @@ const connectToDatabase = async () => {
     if (!connectionString) {
       console.error('❌ ATLAS_URI environment variable is not set');
       console.error('💡 Please set ATLAS_URI in your environment variables');
-      console.error('💡 Format: mongodb+srv://username:password@cluster.mongodb.net/database_name');
       throw new Error('ATLAS_URI is not configured');
     }
 
     console.log('🔌 Connecting to MongoDB...');
     console.log(`📡 Connection string: ${connectionString.substring(0, 50)}...`);
     
-    // Create new client
+    // Create new client with modern options
     client = new MongoClient(connectionString, clientOptions);
     
     // Connect with timeout
-    await Promise.race([
-      client.connect(),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Connection timeout')), 10000)
-      )
-    ]);
+    await client.connect();
     
     console.log('✅ MongoDB connected successfully');
     
@@ -63,7 +67,7 @@ const connectToDatabase = async () => {
   }
 };
 
-// Initialize connection - use a simple promise
+// Initialize connection
 let dbInstancePromise = null;
 
 const getDbInstance = async () => {
@@ -73,9 +77,20 @@ const getDbInstance = async () => {
   return dbInstancePromise;
 };
 
-// For backward compatibility - returns a promise
-const dbInstance = await getDbInstance().catch(() => null);
+// Get database instance (returns promise)
+const getDb = async () => {
+  try {
+    const db = await getDbInstance();
+    if (!db) {
+      throw new Error('Database connection failed');
+    }
+    return db;
+  } catch (error) {
+    console.error('Failed to get database instance:', error);
+    throw error;
+  }
+};
 
 // Export functions
-export { connectToDatabase, getDbInstance };
-export default dbInstance;
+export { connectToDatabase, getDbInstance, getDb };
+export default getDb;
