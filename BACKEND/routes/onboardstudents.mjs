@@ -322,8 +322,7 @@ router.post("/login",bruteforce.prevent, async (req, res) => {
       });
     }
 
-    const collection = await db.collection("students");
-
+const collection = req.db.collection("admins");
     // Find user by username ONLY (no email)
     const user = await collection.findOne({
       username: username?.trim()

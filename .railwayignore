@@ -1,0 +1,18 @@
+# .railwayignore - Similar to .gitignore but for Railway builds
+node_modules/
+*.log
+.env
+.env.local
+.DS_Store
+.vscode/
+.idea/
+.git/
+*.md
+*.txt
+test/
+tests/
+coverage/
+dist/
+build/
+*.map
+*.d.ts

@@ -1,4 +1,4 @@
-const axios = require('axios');
+import axios from 'axios';
 
 async function testAdminLogin() {
   try {
@@ -13,7 +13,7 @@ async function testAdminLogin() {
     console.log('Response:', response.data);
 
     // Test token verification
-    const verifyResponse = await axios.get('http://localhost:3002/api/adminlogin/verify', {
+    const verifyResponse = await axios.get('http://localhost:3000/api/adminlogin/verify', {
       headers: {
         'Authorization': `Bearer ${response.data.token}`
       }
