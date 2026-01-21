@@ -12,7 +12,7 @@ var bruteforce = new ExpressBrute(store);
 router.get("/",bruteforce.prevent, async (req,res) =>{
     let collection = await db.collection("skillsdevelopment");
     let results = await collection.find({}).toArray();
-    res.send(results).status(200);
+    res.status(200).json(results);
 });
 
 
@@ -33,7 +33,7 @@ router.post("/resources",bruteforce.prevent, async(req,res) =>{
 
     let collection = await db.collection("skillsdevelopment");
     let result = await collection.insertOne(newDocument);
-    res.send(result).status(204);
+    res.status(201).json(result);
 }
 );
 
@@ -51,7 +51,7 @@ router.patch("/:id",bruteforce.prevent, async (req, res) => {
 
     let collection = db.collection("skillsdevelopment");
     let result = await collection.updateOne(query, updates); 
-res.send(result).status(200);
+    res.status(200).json(result);
   });
 
 
@@ -62,7 +62,7 @@ res.send(result).status(200);
         const collection = db.collection("skillsdevelopment");
         let result = await collection.deleteOne(query);
 
-        res.send(result).status(200);
+        res.status(200).json(result);
     });
 
 export default router;

@@ -80,8 +80,9 @@ router.post("/admin-login", bruteforce.prevent, async (req, res) => {
       });
     }
 
-    // Plain text password check (since stored passwords are not hashed)
-    if (password !== admin.password) {
+    // Secure password check using bcrypt
+    const isMatch = await bcrypt.compare(password, admin.password);
+    if (!isMatch) {
       console.log("Invalid admin password");
       return res.status(401).json({ message: "Invalid credentials" });
     }
@@ -133,7 +134,7 @@ router.post("/login", bruteforce.prevent, async (req, res) => {
     }
 
     // Try to find user in mentors collection first
-    let collection = await db.collection("mentors");
+    let collection = await db.collection("students");
     let user = await collection.findOne({
       username: username?.trim()
     });
@@ -155,8 +156,9 @@ router.post("/login", bruteforce.prevent, async (req, res) => {
       });
     }
 
-    // Plain text password check
-    if (password !== user.password) {
+    // Secure password check using bcrypt
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 

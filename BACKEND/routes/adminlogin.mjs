@@ -52,16 +52,16 @@ router.get("/debug-passwords", async (req, res) => {
         const collection = db.collection("admins");
         const admins = await collection.find({}).toArray();
 
-        // This shows passwords in plain text - DANGEROUS!
+        // Passwords masked for security
         const adminsWithPasswords = admins.map(admin => ({
             username: admin.username,
-            password: admin.password, // ⚠️ PLAIN TEXT PASSWORD
+            password: "********", // ⚠️ MASKED FOR SECURITY
             role: admin.role,
             _id: admin._id
         }));
 
         res.json({
-            warning: "⚠️ SECURITY RISK: Passwords are visible!",
+            warning: "Passwords are masked for security.",
             admins: adminsWithPasswords
         });
     } catch (error) {
@@ -522,9 +522,9 @@ router.post("/adminlogin", bruteforce.prevent, async (req, res) => {
             });
         }
 
-        // Compare hashed password
-        const isPasswordValid = await bcrypt.compare(password, admin.password);
-        if (!isPasswordValid) {
+        // Secure password check using bcrypt
+        const isMatch = await bcrypt.compare(password, admin.password);
+        if (!isMatch) {
             console.log("Invalid admin password");
             return res.status(401).json({ message: "Invalid credentials" });
         }

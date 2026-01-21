@@ -11,7 +11,7 @@ var bruteforce = new ExpressBrute(store);
 router.get("/",bruteforce.prevent, async (req, res) => {
     let collection = await db.collection("mentors");
     let results = await collection.find({}).toArray();
-    res.send(results).status(200);
+    res.status(200).json(results);
 });
 
 // Get a specific mentor with their students
@@ -24,7 +24,7 @@ router.get("/:id",bruteforce.prevent, async (req, res) => {
         if (!result) {
             return res.status(404).json({ message: "Mentor not found" });
         }
-        res.send(result).status(200);
+        res.status(200).json(result);
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -33,6 +33,20 @@ router.get("/:id",bruteforce.prevent, async (req, res) => {
 // Mentor signup
 router.post("/signup",bruteforce.prevent, async(req, res) => {
     try {
+        let collection = await db.collection("mentors");
+        
+        // Check if mentor already exists
+        const existingMentor = await collection.findOne({ 
+            $or: [{ username: req.body.username }, { email: req.body.email }] 
+        });
+
+        if (existingMentor) {
+            return res.status(409).json({ message: "Mentor with this username or email already exists" });
+        }
+
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(req.body.password, salt);
+
         let newDocument = {
             firstname: req.body.firstname,
             lastname: req.body.lastname,
@@ -41,14 +55,13 @@ router.post("/signup",bruteforce.prevent, async(req, res) => {
             cohort: req.body.cohort,
             track: req.body.track,
             username: req.body.username,
-            password: req.body.password,
+            password: hashedPassword,
             program: req.body.program,
             students: [], // Initialize empty students array
             maxStudents: req.body.maxStudents || 5, // Default max students
             createdAt: new Date()
         };
 
-        let collection = await db.collection("mentors");
         let result = await collection.insertOne(newDocument);
         
         res.status(201).json({

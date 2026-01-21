@@ -30,8 +30,8 @@ const handleLogin = async (e) => {
   setLoginError('');
 
   try {
-    // Use ONLY ONE login endpoint - no admin/student distinction
-    const response = await authAPI.login(credentials.username, credentials.password);
+    // Pass the activeTab to the API to select the correct endpoint
+    const response = await authAPI.login(credentials.username, credentials.password, activeTab);
     
     console.log('Login response:', response); // Debug logging
     console.log('User object:', response.user); // Debug logging
@@ -40,16 +40,14 @@ const handleLogin = async (e) => {
       tokenManager.setToken(response.token);
       tokenManager.setStoredUser(response.user);
 
-      // Simple username-based routing
-      // If username is "admin" (case-insensitive), go to /dashboard
-      // All other usernames go to /userdashboard
-      const username = response.user.username || '';
+      // Route based on the role returned from backend, or fallback to the tab used
+      const role = response.user?.role || (activeTab === 'admin' ? 'admin' : 'student');
       
-      if (username.toLowerCase() === 'admin') {
-        console.log('Routing to admin dashboard for user:', username);
+      if (role === 'admin' || role === 'superadmin') {
+        console.log('Routing to admin dashboard');
         navigate('/dashboard');
       } else {
-        console.log('Routing to user dashboard for user:', username);
+        console.log('Routing to user dashboard');
         navigate('/userdashboard');
       }
     } else {

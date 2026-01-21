@@ -185,7 +185,7 @@ router.get("/", async (req, res) => {
   try {
     let collection = await db.collection("students");
     let results = await collection.find({}).toArray();
-    res.send(results).status(200);
+    res.status(200).json(results);
   } catch (error) {
     res.status(500).json({
       error: "Failed to fetch students"
@@ -225,7 +225,10 @@ router.post("/onboardstudent", authenticateAdmin, validateSignupInput, async (re
       });
     }
 
-    // ✅ STORE PLAIN TEXT PASSWORD (since login compares plain text)
+    // Hash the password before storing
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password.trim(), salt);
+
     const newUser = {
       name: name.trim(),
       surname: surname.trim(),
@@ -234,7 +237,7 @@ router.post("/onboardstudent", authenticateAdmin, validateSignupInput, async (re
       program: program.trim(),
       track: track.trim(),
       username: username.trim(),
-      password: password.trim(), // ✅ PLAIN TEXT PASSWORD
+      password: hashedPassword,
       accessAllowed: "granted",
       createdAt: new Date(),
       lastLogin: null,
@@ -286,7 +289,7 @@ router.patch("/:id", authenticateAdmin, async (req, res) => {
 
     let collection = await db.collection("students");
     let result = await collection.updateOne(query, updates);
-    res.send(result).status(200);
+    res.status(200).json(result);
   } catch (error) {
     res.status(500).json({ error: "Failed to update student" });
   }
@@ -298,7 +301,7 @@ router.delete("/:id", authenticateAdmin, async (req, res) => {
     const query = { _id: new ObjectId(req.params.id) };
     const collection = await db.collection("students");
     let result = await collection.deleteOne(query);
-    res.send(result).status(200);
+    res.status(200).json(result);
   } catch (error) {
     res.status(500).json({ error: "Failed to delete student" });
   }
@@ -322,7 +325,7 @@ router.post("/login",bruteforce.prevent, async (req, res) => {
       });
     }
 
-const collection = req.db.collection("admins");
+const collection = db.collection("students");
     // Find user by username ONLY (no email)
     const user = await collection.findOne({
       username: username?.trim()
@@ -337,8 +340,9 @@ const collection = req.db.collection("admins");
       });
     }
 
-    // 🔐 PLAIN TEXT PASSWORD CHECK (since stored passwords are not hashed)
-    if (password !== user.password) {
+    // Secure password check using bcrypt
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
       console.log("Invalid password");
       return res.status(401).json({ message: "Invalid credentials" });
     }
