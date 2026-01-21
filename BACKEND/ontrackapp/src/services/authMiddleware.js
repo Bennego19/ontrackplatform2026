@@ -1,5 +1,4 @@
-const API_BASE_URL = "";
-
+const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
 /* =========================
    TOKEN MANAGER
 ========================= */
@@ -68,7 +67,6 @@ export const tokenManager = {
 /* =========================
    AUTH API (STUDENTS)
 ========================= */
-
 const authFetch = async (endpoint, options = {}) => {
   const token = tokenManager.getToken();
   if (!token) throw new Error("No authentication token");
@@ -93,7 +91,6 @@ const authFetch = async (endpoint, options = {}) => {
 
   return data;
 };
-
 export const authAPI = {
   /* ---------- AUTH ---------- */
   login: async (username, password) => {
@@ -105,9 +102,9 @@ export const authAPI = {
 
     // Determine which endpoint to use based on username
     const isAdminLogin = username.toLowerCase() === 'admin';
-    const endpoint = isAdminLogin ? '/api/adminlogin/adminlogin' : '/api/onboardstudents/login';
+    const endpoint = isAdminLogin ? '/adminlogin/adminlogin' : '/onboardstudents/login';
 
-    const response = await fetch(endpoint, {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
@@ -134,7 +131,7 @@ export const authAPI = {
     const payload = { username, password };
 
     const response = await fetch(
-      `/api/adminlogin/adminlogin`,
+      `${API_BASE_URL}/adminlogin/adminlogin`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },

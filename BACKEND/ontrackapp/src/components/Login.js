@@ -1,13 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { authAPI } from '../services/authMiddleware';
-import { tokenManager } from '../services/authMiddleware';
-import './Dashboard.css'; // Reuse the CSS
+import { authAPI, tokenManager } from '../services/authMiddleware';
+import './Dashboard.css';
 
 const Login = () => {
   const navigate = useNavigate();
-
-  // Login form state
   const [activeTab, setActiveTab] = useState('admin');
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -15,58 +12,67 @@ const Login = () => {
     username: '',
     password: ''
   });
-  const [validationErrors, setValidationErrors] = useState({});
-  const [attempts, setAttempts] = useState(0);
-const handleLogin = async (e) => {
-  e.preventDefault();
-  
-  // Remove tab-based validation - only check form fields
-  if (!credentials.username || !credentials.password) {
-    setLoginError('Username and password are required');
-    return;
-  }
-  
-  setIsLoggingIn(true);
-  setLoginError('');
 
-  try {
-    // Use ONLY ONE login endpoint - no admin/student distinction
-    const response = await authAPI.login(credentials.username, credentials.password);
+  const handleLogin = async (e) => {
+    e.preventDefault();
     
-    console.log('Login response:', response); // Debug logging
-    console.log('User object:', response.user); // Debug logging
-
-    if (response.success) {
-      tokenManager.setToken(response.token);
-      tokenManager.setStoredUser(response.user);
-
-      // Simple username-based routing
-      // If username is "admin" (case-insensitive), go to /dashboard
-      // All other usernames go to /userdashboard
-      const username = response.user.username || '';
-      
-      if (username.toLowerCase() === 'admin') {
-        console.log('Routing to admin dashboard for user:', username);
-        navigate('/dashboard');
-      } else {
-        console.log('Routing to user dashboard for user:', username);
-        navigate('/userdashboard');
-      }
-    } else {
-      setLoginError(response.message || 'Login failed. Check username/password.');
+    if (!credentials.username || !credentials.password) {
+      setLoginError('Username and password are required');
+      return;
     }
-  } catch (error) {
-    console.error('Login error:', error);
-    setLoginError('Server error. Please try again later.');
-  } finally {
-    setIsLoggingIn(false);
-  }
-};
+    
+    setIsLoggingIn(true);
+    setLoginError('');
+
+    try {
+      let response;
+      
+      // Use the correct login function based on tab
+      if (activeTab === 'admin') {
+        // Use adminLogin function (hits /api/adminlogin/adminlogin)
+        response = await authAPI.adminLogin(credentials.username, credentials.password);
+        
+        if (response.success) {
+          // Admin login successful - go to admin dashboard
+          navigate('/dashboard');
+        } else {
+          setLoginError(response.message || 'Admin login failed');
+        }
+      } else {
+        // Use regular login function (auto-detects user type)
+        response = await authAPI.login(credentials.username, credentials.password);
+        
+        if (response.success) {
+          // Check if it's actually an admin (username === 'admin')
+          const username = response.user?.username || credentials.username;
+          
+          if (username.toLowerCase() === 'admin') {
+            // It's an admin - go to admin dashboard
+            navigate('/dashboard');
+          } else {
+            // It's a student - go to user dashboard
+            navigate('/userdashboard');
+          }
+        } else {
+          setLoginError(response.message || 'Login failed');
+        }
+      }
+      
+    } catch (error) {
+      console.error('Login error:', error);
+      setLoginError(error.message || 'Server error. Please try again later.');
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
   const handleInputChange = (e) => {
     setCredentials({
       ...credentials,
       [e.target.name]: e.target.value
     });
+    // Clear error when user starts typing
+    if (loginError) setLoginError('');
   };
 
   return (
@@ -80,13 +86,19 @@ const handleLogin = async (e) => {
         <div className="login-tabs">
           <button
             className={`tab-button ${activeTab === 'admin' ? 'active' : ''}`}
-            onClick={() => setActiveTab('admin')}
+            onClick={() => {
+              setActiveTab('admin');
+              setLoginError('');
+            }}
           >
             Admin Login
           </button>
           <button
             className={`tab-button ${activeTab === 'student' ? 'active' : ''}`}
-            onClick={() => setActiveTab('student')}
+            onClick={() => {
+              setActiveTab('student');
+              setLoginError('');
+            }}
           >
             Student Login
           </button>
@@ -107,7 +119,7 @@ const handleLogin = async (e) => {
               onChange={handleInputChange}
               required
               disabled={isLoggingIn}
-              placeholder="Enter your username"
+              placeholder={activeTab === 'admin' ? 'Enter admin username' : 'Enter student username'}
             />
           </div>
           
@@ -132,12 +144,9 @@ const handleLogin = async (e) => {
           >
             {isLoggingIn ? 'Logging in...' : `Login as ${activeTab === 'admin' ? 'Admin' : 'Student'}`}
           </button>
-
-      
         </form>
       </div>
       
-
       <div className="copyright">
         © {new Date().getFullYear()} OnTrack Connect. All rights reserved.
       </div>
