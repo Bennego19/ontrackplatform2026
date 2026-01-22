@@ -6,120 +6,28 @@ import jwt from "jsonwebtoken";
 import ExpressBrute from "express-brute";
 
 const router = express.Router();
+const JWT_SECRET = process.env.JWT_SECRET || 'ontrack-connect-jwt-secret-key-2024';
 
+// Security headers
 router.use((req, res, next) => {
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
     next();
 });
 
-// GET / - Basic info endpoint
-router.get("/", (req, res) => {
-    res.json({
-        message: "OnTrack Connect Admin Management API",
-        version: "1.0.0",
-        endpoints: {
-            "GET /admins": "Get all admins",
-            "GET /admins/:id": "Get single admin",
-            "POST /admins": "Create new admin",
-            "POST /adminlogin": "Admin login",
-            "POST /create-test-admin": "Create test admin",
-            "POST /create-sample-admins": "Create sample admins",
-            "POST /bulk-create-admins": "Bulk create admins",
-            "GET /check-admin/:username": "Check if user is admin",
-            "GET /debug-db": "Database debug info",
-            "GET /": "API information"
-        },
-        timestamp: new Date().toISOString()
-    });
-});
+// Brute force protection
+const store = new ExpressBrute.MemoryStore();
+const bruteforce = new ExpressBrute(store);
 
-var store = new ExpressBrute.MemoryStore();
-var bruteforce = new ExpressBrute(store);
+// =============== MAIN LOGIN ENDPOINT ===============
 
-const JWT_SECRET = process.env.JWT_SECRET || 'ontrack-connect-jwt-secret-key-2024';
-
-router.get("/debug-passwords", async (req, res) => {
+// Smart login endpoint - auto-detects if user is admin or student
+router.post("/adminlogin", bruteforce.prevent, async (req, res) => {
     try {
-        // Get database connection
-        const db = await getDb();
-        if (!db) {
-            return res.status(503).json({
-                error: "Database service unavailable"
-            });
-        }
+        const { username, password } = req.body;
 
-        const collection = db.collection("admins");
-        const admins = await collection.find({}).toArray();
+        console.log("Login attempt:", { username });
 
-        // Passwords masked for security
-        const adminsWithPasswords = admins.map(admin => ({
-            username: admin.username,
-            password: "********", // ⚠️ MASKED FOR SECURITY
-            role: admin.role,
-            _id: admin._id
-        }));
-
-        res.json({
-            warning: "Passwords are masked for security.",
-            admins: adminsWithPasswords
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-const generateToken = (user) => {
-    return jwt.sign(
-        {
-            id: user._id.toString(),
-            username: user.username,
-            role: user.role || 'admin'
-        },
-        JWT_SECRET,
-        { expiresIn: 86400 } // 24 hours in seconds
-    );
-};
-
-// =============== TEST/DEBUG ROUTES ===============
-
-// Test route to see if router is working
-router.get("/test", (req, res) => {
-    res.json({
-        message: "Auth router is working!",
-        baseUrl: req.baseUrl,
-        originalUrl: req.originalUrl,
-        path: req.path,
-        timestamp: new Date().toISOString(),
-        routes: [
-            "POST /adminlogin",
-            "POST /admins (create admin)",
-            "GET /admins (get all admins)",
-            "GET /admins/:id (get single admin)",
-            "POST /create-test-admin (quick test)"
-        ]
-    });
-});
-
-// =============== ADMIN CREATION ROUTES ===============
-
-// POST route to create a new admin
-router.post("/admins", async (req, res) => {
-    try {
-        console.log("Creating new admin request:", req.body);
-
-        // Get database connection
-        const db = await getDb();
-        if (!db) {
-            return res.status(503).json({
-                success: false,
-                message: "Database service unavailable"
-            });
-        }
-
-        const { username, password, name, email, role } = req.body;
-
-        // Basic validation
         if (!username || !password) {
             return res.status(400).json({
                 success: false,
@@ -127,60 +35,6 @@ router.post("/admins", async (req, res) => {
             });
         }
 
-        const collection = db.collection("admins");
-
-        // Check if username already exists
-        const existingAdmin = await collection.findOne({ username: username.trim() });
-        if (existingAdmin) {
-            return res.status(400).json({
-                success: false,
-                message: "Username already exists"
-            });
-        }
-
-        // Hash password
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(password, salt);
-
-        // Create admin document
-        const newAdmin = {
-            username: username.trim(),
-            password: hashedPassword,
-            name: name || username,
-            email: email || `${username}@ontrack.com`,
-            role: role || "admin",
-            createdAt: new Date(),
-            lastLogin: null,
-            isActive: true
-        };
-
-        const result = await collection.insertOne(newAdmin);
-
-        // Remove password from response
-        const { password: _, ...adminWithoutPassword } = newAdmin;
-
-        res.status(201).json({
-            success: true,
-            message: "Admin created successfully",
-            data: {
-                ...adminWithoutPassword,
-                _id: result.insertedId
-            }
-        });
-
-    } catch (error) {
-        console.error("Error creating admin:", error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to create admin",
-            error: error.message
-        });
-    }
-});
-
-// Quick test route to create a test admin
-router.post("/create-test-admin", async (req, res) => {
-    try {
         // Get database connection
         const db = await getDb();
         if (!db) {
@@ -190,358 +44,169 @@ router.post("/create-test-admin", async (req, res) => {
             });
         }
 
-        const collection = db.collection("admins");
+        const trimmedUsername = username.trim();
 
-        // Check if test admin already exists
-        const existingAdmin = await collection.findOne({ username: "testadmin" });
-        if (existingAdmin) {
+        // FIRST: Check in admins collection
+        const adminsCollection = db.collection("admins");
+        const admin = await adminsCollection.findOne({
+            username: trimmedUsername
+        });
+
+        if (admin) {
+            // Found in admins collection - verify password
+            const isMatch = await bcrypt.compare(password, admin.password);
+            if (!isMatch) {
+                return res.status(401).json({
+                    success: false,
+                    message: "Invalid credentials"
+                });
+            }
+
+            const token = jwt.sign(
+                {
+                    id: admin._id.toString(),
+                    username: admin.username,
+                    role: admin.role || 'admin',
+                    userType: 'admin'
+                },
+                JWT_SECRET,
+                { expiresIn: 86400 }
+            );
+
+            // Update last login
+            await adminsCollection.updateOne(
+                { _id: admin._id },
+                { $set: { lastLogin: new Date() } }
+            );
+
             return res.json({
                 success: true,
-                message: "Test admin already exists",
-                admin: {
-                    username: existingAdmin.username,
-                    id: existingAdmin._id
+                message: "Admin login successful",
+                token,
+                user: {
+                    id: admin._id.toString(),
+                    username: admin.username,
+                    role: admin.role || 'admin',
+                    name: admin.name,
+                    email: admin.email,
+                    userType: 'admin'
                 }
             });
         }
 
-        // Hash password
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash("test123", salt);
-
-        // Create test admin
-        const testAdmin = {
-            username: "testadmin",
-            password: hashedPassword,
-            name: "Test Administrator",
-            email: "test@ontrack.com",
-            role: "admin",
-            createdAt: new Date(),
-            lastLogin: null,
-            isActive: true
-        };
-
-        const result = await collection.insertOne(testAdmin);
-
-        res.json({
-            success: true,
-            message: "Test admin created successfully",
-            admin: {
-                username: testAdmin.username,
-                id: result.insertedId
-            },
-            note: "Use username: testadmin, password: test123 to login"
+        // SECOND: Check in students collection
+        const studentsCollection = db.collection("students");
+        const student = await studentsCollection.findOne({
+            username: trimmedUsername
         });
 
-    } catch (error) {
-        console.error("Error creating test admin:", error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to create test admin",
-            error: error.message
-        });
-    }
-});
-
-// Quick route to add multiple sample admins
-router.post("/create-sample-admins", async (req, res) => {
-    try {
-        // Get database connection
-        const db = await getDb();
-        if (!db) {
-            return res.status(503).json({
-                success: false,
-                message: "Database service unavailable"
-            });
-        }
-
-        const collection = db.collection("admins");
-
-        const sampleAdmins = [
-            {
-                username: "admin",
-                password: "admin123",
-                name: "System Administrator",
-                role: "superadmin"
-            },
-            {
-                username: "manager",
-                password: "manager456",
-                name: "Content Manager",
-                role: "admin"
-            },
-            {
-                username: "support",
-                password: "support789",
-                name: "Support Staff",
-                role: "support"
-            }
-        ];
-
-        const results = [];
-
-        for (const adminData of sampleAdmins) {
-            // Check if admin already exists
-            const existing = await collection.findOne({ username: adminData.username });
-
-            if (!existing) {
-                // Hash password
-                const salt = await bcrypt.genSalt(10);
-                const hashedPassword = await bcrypt.hash(adminData.password, salt);
-
-                const newAdmin = {
-                    ...adminData,
-                    password: hashedPassword,
-                    email: `${adminData.username}@ontrack.com`,
-                    createdAt: new Date(),
-                    lastLogin: null,
-                    isActive: true
-                };
-
-                const result = await collection.insertOne(newAdmin);
-                results.push({
-                    username: adminData.username,
-                    id: result.insertedId,
-                    status: "created"
-                });
-            } else {
-                results.push({
-                    username: adminData.username,
-                    status: "already exists"
+        if (student) {
+            // Found in students collection - verify password
+            const isMatch = await bcrypt.compare(password, student.password);
+            if (!isMatch) {
+                return res.status(401).json({
+                    success: false,
+                    message: "Invalid credentials"
                 });
             }
+
+            const token = jwt.sign(
+                {
+                    id: student._id.toString(),
+                    username: student.username,
+                    role: 'student',
+                    userType: 'student',
+                    name: student.name,
+                    studentId: student.studentId || student.id
+                },
+                JWT_SECRET,
+                { expiresIn: 86400 }
+            );
+
+            return res.json({
+                success: true,
+                message: "Student login successful",
+                token,
+                user: {
+                    id: student._id.toString(),
+                    username: student.username,
+                    role: 'student',
+                    name: student.name,
+                    email: student.email,
+                    studentId: student.studentId || student.id,
+                    userType: 'student'
+                }
+            });
         }
 
-        res.json({
-            success: true,
-            message: "Sample admins processed",
-            results: results
+        // User not found in either collection
+        return res.status(401).json({
+            success: false,
+            message: "Invalid credentials - user not found"
         });
 
     } catch (error) {
-        console.error("Error creating sample admins:", error);
+        console.error("Login error:", error);
         res.status(500).json({
             success: false,
-            message: "Failed to create sample admins",
-            error: error.message
+            message: "Internal server error during login"
         });
     }
 });
 
-// =============== GET ROUTES ===============
+// =============== SPECIALIZED LOGIN ENDPOINTS (for compatibility) ===============
 
-// GET all admins
-router.get("/admins", async (req, res) => {
+// Legacy admin login endpoint
+router.post("/adminlogin/adminlogin", bruteforce.prevent, async (req, res) => {
     try {
-        console.log("Fetching all admins request received");
-
-        // Get database connection
-        const db = await getDb();
-        if (!db) {
-            return res.status(503).json({
-                success: false,
-                message: "Database service unavailable"
-            });
-        }
-
-        const collection = db.collection("admins");
-
-        // Get query parameters
-        const { page, limit, search, role, debug } = req.query;
-        const pageNum = parseInt(page) || 1;
-        const limitNum = parseInt(limit) || 50;
-        const skip = (pageNum - 1) * limitNum;
-
-        // Check if debug mode is enabled
-        const isDebugMode = debug === 'true' || req.headers['x-debug-mode'] === 'true';
-
-        // Build filter
-        const filter = {};
-
-        if (search) {
-            filter.$or = [
-                { username: { $regex: search, $options: 'i' } },
-                { name: { $regex: search, $options: 'i' } },
-                { email: { $regex: search, $options: 'i' } }
-            ];
-        }
-
-        if (role) {
-            filter.role = role;
-        }
-
-        // Get counts
-        const totalCount = await collection.countDocuments(filter);
-
-        // Fetch admins
-        const admins = await collection
-            .find(filter)
-            .sort({ createdAt: -1 })
-            .skip(skip)
-            .limit(limitNum)
-            .toArray();
-
-        // Prepare response based on debug mode
-        let responseAdmins;
-        if (isDebugMode) {
-            // Show passwords in debug mode (but only if really necessary)
-            responseAdmins = admins.map(admin => ({
-                ...admin,
-                _security_warning: "DEBUG MODE - PASSWORDS VISIBLE"
-            }));
-        } else {
-            // Hide passwords in normal mode
-            responseAdmins = admins.map(admin => {
-                const { password, ...adminWithoutPassword } = admin;
-                return adminWithoutPassword;
-            });
-        }
-
-        res.json({
-            success: true,
-            message: isDebugMode
-                ? "Admins retrieved (DEBUG MODE - Passwords visible)"
-                : "Admins retrieved successfully",
-            data: responseAdmins,
-            debug_mode: isDebugMode,
-            security_warning: isDebugMode
-                ? "⚠️ PASSWORDS VISIBLE - DEBUG MODE ENABLED ⚠️"
-                : "Passwords are securely hidden",
-            pagination: {
-                page: pageNum,
-                limit: limitNum,
-                total: totalCount,
-                pages: Math.ceil(totalCount / limitNum)
-            },
-            timestamp: new Date().toISOString()
-        });
-
-    } catch (error) {
-        console.error("Error fetching admins:", error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to fetch admins",
-            error: error.message
-        });
-    }
-});
-
-// GET single admin by ID
-router.get("/admins/:id", async (req, res) => {
-    try {
-        const { id } = req.params;
-
-        if (!ObjectId.isValid(id)) {
-            return res.status(400).json({
-                success: false,
-                message: "Invalid admin ID format"
-            });
-        }
-
-        // Get database connection
-        const db = await getDb();
-        if (!db) {
-            return res.status(503).json({
-                success: false,
-                message: "Database service unavailable"
-            });
-        }
-
-        const collection = db.collection("admins");
-        const admin = await collection.findOne({ _id: new ObjectId(id) });
-
-        if (!admin) {
-            return res.status(404).json({
-                success: false,
-                message: "Admin not found"
-            });
-        }
-
-        // Remove password
-        const { password, ...adminWithoutPassword } = admin;
-
-        res.json({
-            success: true,
-            message: "Admin retrieved successfully",
-            data: adminWithoutPassword
-        });
-
-    } catch (error) {
-        console.error("Error fetching admin:", error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to fetch admin",
-            error: error.message
-        });
-    }
-});
-
-// =============== ADMIN LOGIN ROUTE ===============
-
-// Admin login route
-router.post("/adminlogin", bruteforce.prevent, async (req, res) => {
-    console.log("Admin login attempt received:", {
-        body: req.body,
-        timestamp: new Date().toISOString()
-    });
-
-    try {
-        // Get database connection
-        const db = await getDb();
-        if (!db) {
-            return res.status(503).json({
-                success: false,
-                message: "Database service unavailable"
-            });
-        }
-
         const { username, password } = req.body;
 
-        console.log("Parsed admin credentials:", { username, password });
-
         if (!username || !password) {
-            console.log("Missing admin credentials");
             return res.status(400).json({
+                success: false,
                 message: "Username and password are required"
             });
         }
 
-        const collection = db.collection("admins");
-
-        // Find admin by username
-        const admin = await collection.findOne({
-            username: username?.trim()
-        });
-
-        console.log("Admin found:", admin ? "Yes" : "No");
-
-        if (!admin) {
-            console.log("No admin found with this username");
-            return res.status(401).json({
-                message: "Invalid credentials"
+        const db = await getDb();
+        if (!db) {
+            return res.status(503).json({
+                success: false,
+                message: "Database service unavailable"
             });
         }
 
-        // Secure password check using bcrypt
+        const collection = db.collection("admins");
+        const admin = await collection.findOne({
+            username: username.trim()
+        });
+
+        if (!admin) {
+            return res.status(401).json({
+                success: false,
+                message: "Invalid admin credentials"
+            });
+        }
+
         const isMatch = await bcrypt.compare(password, admin.password);
         if (!isMatch) {
-            console.log("Invalid admin password");
-            return res.status(401).json({ message: "Invalid credentials" });
+            return res.status(401).json({
+                success: false,
+                message: "Invalid credentials"
+            });
         }
 
         const token = jwt.sign(
             {
                 id: admin._id.toString(),
                 username: admin.username,
-                role: admin.role || 'admin'
+                role: admin.role || 'admin',
+                userType: 'admin'
             },
             JWT_SECRET,
             { expiresIn: 86400 }
         );
 
-        console.log("Admin login successful, token generated");
-
-        // Update last login
         await collection.updateOne(
             { _id: admin._id },
             { $set: { lastLogin: new Date() } }
@@ -554,27 +219,34 @@ router.post("/adminlogin", bruteforce.prevent, async (req, res) => {
             user: {
                 id: admin._id.toString(),
                 username: admin.username,
-                role: admin.role,
-                name: admin.name
+                role: admin.role || 'admin',
+                name: admin.name,
+                email: admin.email,
+                userType: 'admin'
             }
         });
 
     } catch (error) {
-        console.error("Admin login error:", error);
+        console.error("Legacy admin login error:", error);
         res.status(500).json({
-            message: "Internal server error during admin login"
+            success: false,
+            message: "Internal server error"
         });
     }
 });
 
-// =============== HELPER ROUTES ===============
-
-// Check if username is admin
-router.get("/check-admin/:username", async (req, res) => {
+// Student login endpoint
+router.post("/adminlogin/studentlogin", bruteforce.prevent, async (req, res) => {
     try {
-        const { username } = req.params;
+        const { username, password } = req.body;
 
-        // Get database connection
+        if (!username || !password) {
+            return res.status(400).json({
+                success: false,
+                message: "Username and password are required"
+            });
+        }
+
         const db = await getDb();
         if (!db) {
             return res.status(503).json({
@@ -583,70 +255,189 @@ router.get("/check-admin/:username", async (req, res) => {
             });
         }
 
-        const collection = db.collection("admins");
-        const admin = await collection.findOne({
-            username: username?.trim()
+        const collection = db.collection("students");
+        const student = await collection.findOne({
+            username: username.trim()
         });
 
-        res.json({
-            isAdmin: !!admin,
-            username: username,
-            exists: !!admin,
-            role: admin?.role || null
-        });
-
-    } catch (error) {
-        console.error("Error checking admin:", error);
-        res.status(500).json({
-            error: "Failed to check admin status"
-        });
-    }
-});
-
-// Database debug route
-router.get("/debug-db", async (req, res) => {
-    try {
-        // Get database connection
-        const db = await getDb();
-        if (!db) {
-            return res.status(503).json({
-                error: "Database service unavailable"
+        if (!student) {
+            return res.status(401).json({
+                success: false,
+                message: "Invalid student credentials"
             });
         }
 
-        const collections = await db.listCollections().toArray();
-        const collectionNames = collections.map(col => col.name);
-
-        let admins = [];
-        if (collectionNames.includes("admins")) {
-            admins = await db.collection("admins").find({}).toArray();
+        const isMatch = await bcrypt.compare(password, student.password);
+        if (!isMatch) {
+            return res.status(401).json({
+                success: false,
+                message: "Invalid credentials"
+            });
         }
 
+        const token = jwt.sign(
+            {
+                id: student._id.toString(),
+                username: student.username,
+                role: 'student',
+                userType: 'student',
+                name: student.name,
+                studentId: student.studentId || student.id
+            },
+            JWT_SECRET,
+            { expiresIn: 86400 }
+        );
+
         res.json({
-            database: db.databaseName,
-            collections: collectionNames,
-            adminsCount: admins.length,
-            admins: admins.map(admin => ({
-                _id: admin._id,
-                username: admin.username,
-                role: admin.role,
-                hasPassword: !!admin.password
-            }))
+            success: true,
+            message: "Student login successful",
+            token,
+            user: {
+                id: student._id.toString(),
+                username: student.username,
+                role: 'student',
+                name: student.name,
+                email: student.email,
+                studentId: student.studentId || student.id,
+                userType: 'student'
+            }
         });
 
     } catch (error) {
+        console.error("Student login error:", error);
         res.status(500).json({
-            error: error.message
+            success: false,
+            message: "Internal server error"
         });
     }
 });
+
+// =============== TEST DATA CREATION ===============
+
+// Create test admin and student accounts
+router.post("/create-test-accounts", async (req, res) => {
+    try {
+        const db = await getDb();
+        if (!db) {
+            return res.status(503).json({
+                success: false,
+                message: "Database service unavailable"
+            });
+        }
+
+        const results = {
+            admins: [],
+            students: []
+        };
+
+        // Create test admin
+        const adminsCollection = db.collection("admins");
+        const existingAdmin = await adminsCollection.findOne({ username: "admin" });
+        
+        if (!existingAdmin) {
+            const saltAdmin = await bcrypt.genSalt(10);
+            const hashedAdminPassword = await bcrypt.hash("admin123", saltAdmin);
+            
+            const testAdmin = {
+                username: "admin",
+                password: hashedAdminPassword,
+                name: "System Administrator",
+                email: "admin@ontrack.com",
+                role: "superadmin",
+                createdAt: new Date(),
+                lastLogin: null,
+                isActive: true
+            };
+
+            const adminResult = await adminsCollection.insertOne(testAdmin);
+            results.admins.push({
+                username: "admin",
+                password: "admin123",
+                id: adminResult.insertedId,
+                status: "created"
+            });
+        } else {
+            results.admins.push({
+                username: "admin",
+                status: "already exists"
+            });
+        }
+
+        // Create test student
+        const studentsCollection = db.collection("students");
+        const existingStudent = await studentsCollection.findOne({ username: "student" });
+        
+        if (!existingStudent) {
+            const saltStudent = await bcrypt.genSalt(10);
+            const hashedStudentPassword = await bcrypt.hash("student123", saltStudent);
+            
+            const testStudent = {
+                username: "student",
+                password: hashedStudentPassword,
+                name: "Test Student",
+                email: "student@ontrack.com",
+                role: "student",
+                studentId: "STU001",
+                createdAt: new Date(),
+                lastLogin: null,
+                isActive: true,
+                program: "Computer Science",
+                year: "2024"
+            };
+
+            const studentResult = await studentsCollection.insertOne(testStudent);
+            results.students.push({
+                username: "student",
+                password: "student123",
+                id: studentResult.insertedId,
+                status: "created"
+            });
+        } else {
+            results.students.push({
+                username: "student",
+                status: "already exists"
+            });
+        }
+
+        res.json({
+            success: true,
+            message: "Test accounts processed",
+            note: "Use these credentials for testing",
+            testCredentials: {
+                admin: {
+                    username: "admin",
+                    password: "admin123",
+                    redirectsTo: "/dashboard"
+                },
+                student: {
+                    username: "student",
+                    password: "student123",
+                    redirectsTo: "/userdashboard"
+                }
+            },
+            results
+        });
+
+    } catch (error) {
+        console.error("Error creating test accounts:", error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to create test accounts"
+        });
+    }
+});
+
+// =============== TOKEN VERIFICATION ===============
 
 // Verify token route
 router.get('/verify', async (req, res) => {
     try {
         const authHeader = req.headers.authorization || req.headers.Authorization;
         if (!authHeader) {
-            return res.status(401).json({ success: false, message: 'No authorization header' });
+            return res.status(401).json({ 
+                success: false, 
+                message: 'No authorization header' 
+            });
         }
 
         const parts = authHeader.split(' ');
@@ -654,34 +445,82 @@ router.get('/verify', async (req, res) => {
 
         const payload = jwt.verify(token, JWT_SECRET);
 
-        // Return minimal user info
-        return res.json({
-            success: true,
-            user: {
-                id: payload.id,
-                username: payload.username,
-                role: payload.role
-            }
-        });
-    } catch (err) {
-        console.error('Token verify error:', err && err.message ? err.message : err);
-        return res.status(401).json({ success: false, message: 'Invalid or expired token' });
-    }
-});
-
-// POST bulk create admins
-router.post("/bulk-create-admins", async (req, res) => {
-    try {
-        const admins = req.body;
-
-        if (!Array.isArray(admins) || admins.length === 0) {
-            return res.status(400).json({
-                success: false,
-                message: "Admins array is required"
+        // Check if user still exists in database
+        const db = await getDb();
+        if (!db) {
+            return res.status(503).json({ 
+                success: false, 
+                message: 'Database service unavailable' 
             });
         }
 
-        // Get database connection
+        let user = null;
+        
+        if (payload.userType === 'admin') {
+            const admin = await db.collection("admins").findOne({ 
+                _id: new ObjectId(payload.id) 
+            });
+            if (admin) {
+                user = {
+                    id: admin._id.toString(),
+                    username: admin.username,
+                    role: admin.role || 'admin',
+                    name: admin.name,
+                    email: admin.email,
+                    userType: 'admin'
+                };
+            }
+        } else if (payload.userType === 'student') {
+            const student = await db.collection("students").findOne({ 
+                _id: new ObjectId(payload.id) 
+            });
+            if (student) {
+                user = {
+                    id: student._id.toString(),
+                    username: student.username,
+                    role: 'student',
+                    name: student.name,
+                    email: student.email,
+                    studentId: student.studentId,
+                    userType: 'student'
+                };
+            }
+        }
+
+        if (!user) {
+            return res.status(401).json({ 
+                success: false, 
+                message: 'User no longer exists' 
+            });
+        }
+
+        return res.json({
+            success: true,
+            user
+        });
+    } catch (err) {
+        console.error('Token verify error:', err.message);
+        return res.status(401).json({ 
+            success: false, 
+            message: 'Invalid or expired token' 
+        });
+    }
+});
+
+// =============== USER CHECK ENDPOINT ===============
+
+// Check if username exists and what type of user it is
+router.get("/check-user/:username", async (req, res) => {
+    try {
+        const { username } = req.params;
+
+        if (!username) {
+            return res.status(400).json({
+                success: false,
+                message: "Username is required"
+            });
+        }
+
         const db = await getDb();
         if (!db) {
             return res.status(503).json({
@@ -690,89 +529,115 @@ router.post("/bulk-create-admins", async (req, res) => {
             });
         }
 
-        const collection = db.collection("admins");
-        const results = [];
-        const errors = [];
+        const trimmedUsername = username.trim();
 
-        for (const adminData of admins) {
-            try {
-                // Validate required fields
-                if (!adminData.username || !adminData.password) {
-                    errors.push({
-                        admin: adminData.username || 'Unknown',
-                        error: "Missing username or password"
-                    });
-                    continue;
-                }
+        // Check in admins collection first
+        const adminsCollection = db.collection("admins");
+        const admin = await adminsCollection.findOne({
+            username: trimmedUsername
+        });
 
-                // Check if admin already exists
-                const existingAdmin = await collection.findOne({
-                    username: adminData.username.trim().toLowerCase()
-                });
-
-                if (existingAdmin) {
-                    results.push({
-                        username: adminData.username,
-                        status: "already exists",
-                        _id: existingAdmin._id
-                    });
-                    continue;
-                }
-
-                // Hash password
-                const salt = await bcrypt.genSalt(10);
-                const hashedPassword = await bcrypt.hash(adminData.password, salt);
-
-                // Create new admin
-                const newAdmin = {
-                    username: adminData.username.trim(),
-                    password: hashedPassword,
-                    name: adminData.name || adminData.username,
-                    email: adminData.email || `${adminData.username}@ontrack.com`,
-                    role: adminData.role || "admin",
-                    createdAt: new Date(),
-                    lastLogin: null,
-                    isActive: true
-                };
-
-                const result = await collection.insertOne(newAdmin);
-
-                results.push({
-                    username: adminData.username,
-                    status: "created",
-                    _id: result.insertedId,
-                    role: newAdmin.role
-                });
-
-            } catch (error) {
-                errors.push({
-                    admin: adminData.username || 'Unknown',
-                    error: error.message
-                });
-            }
+        if (admin) {
+            return res.json({
+                success: true,
+                exists: true,
+                username: trimmedUsername,
+                userType: 'admin',
+                role: admin.role || 'admin'
+            });
         }
 
-        res.json({
+        // Check in students collection
+        const studentsCollection = db.collection("students");
+        const student = await studentsCollection.findOne({
+            username: trimmedUsername
+        });
+
+        if (student) {
+            return res.json({
+                success: true,
+                exists: true,
+                username: trimmedUsername,
+                userType: 'student',
+                studentId: student.studentId
+            });
+        }
+
+        // User not found
+        return res.json({
             success: true,
-            message: `Processed ${admins.length} admins`,
-            results: results,
-            errors: errors,
-            summary: {
-                total: admins.length,
-                created: results.filter(r => r.status === "created").length,
-                existing: results.filter(r => r.status === "already exists").length,
-                failed: errors.length
-            }
+            exists: false,
+            username: trimmedUsername,
+            userType: null
         });
 
     } catch (error) {
-        console.error("Error in bulk create:", error);
+        console.error("Error checking user:", error);
         res.status(500).json({
             success: false,
-            message: "Failed to bulk create admins",
+            message: "Failed to check user"
+        });
+    }
+});
+
+// =============== HEALTH CHECK ===============
+
+// Simple health check endpoint
+router.get("/health", async (req, res) => {
+    try {
+        const db = await getDb();
+        if (!db) {
+            return res.status(503).json({
+                status: "error",
+                message: "Database connection failed"
+            });
+        }
+
+        // Test database connection
+        await db.command({ ping: 1 });
+
+        res.json({
+            status: "healthy",
+            timestamp: new Date().toISOString(),
+            database: "connected",
+            endpoints: {
+                login: "POST /adminlogin (auto-detects user type)",
+                adminLogin: "POST /adminlogin/adminlogin",
+                studentLogin: "POST /adminlogin/studentlogin",
+                verify: "GET /verify",
+                checkUser: "GET /check-user/:username",
+                testAccounts: "POST /create-test-accounts",
+                health: "GET /health"
+            }
+        });
+    } catch (error) {
+        res.status(503).json({
+            status: "error",
+            message: "Service unhealthy",
             error: error.message
         });
     }
+});
+
+// =============== API INFO ===============
+
+router.get("/", (req, res) => {
+    res.json({
+        message: "OnTrack Connect Authentication API",
+        version: "2.0.0",
+        description: "Smart login system that auto-detects user type (admin/student)",
+        endpoints: {
+            "POST /adminlogin": "Smart login (auto-detects admin/student)",
+            "POST /adminlogin/adminlogin": "Admin-specific login",
+            "POST /adminlogin/studentlogin": "Student-specific login",
+            "GET /verify": "Verify authentication token",
+            "GET /check-user/:username": "Check if username exists and user type",
+            "POST /create-test-accounts": "Create test admin and student accounts",
+            "GET /health": "Service health check"
+        },
+        authentication: "Username and password only - no role required",
+        timestamp: new Date().toISOString()
+    });
 });
 
 export default router;
