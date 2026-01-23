@@ -95,31 +95,24 @@ const authFetch = async (endpoint, options = {}) => {
 };
 
 export const authAPI = {
-  login: async (username, password, role = 'student') => {
+  /* ---------- AUTH ---------- */
+  login: async (username, password) => {
     // Clear any existing authentication data for secure login
     tokenManager.clearAuth();
 
-    // Send username, password, and role
-    const payload = { 
-      username, 
-      password,
-      role: role // Make sure role is sent
-    };
+    // Send ONLY username, not email
+    const payload = { username, password };
 
-    console.log('Sending login request with payload:', payload); // Debug
-
-    // Use the adminlogin endpoint (which now handles both admin and student)
-    const endpoint = '/api/adminlogin/adminlogin';
-    
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
+    const response = await fetch(
+      `/api/onboardstudents/login`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      }
+    );
 
     const data = await response.json();
-    console.log('Login response data:', data); // Debug
-    
     if (!response.ok) {
       throw new Error(data.message || "Login failed");
     }
@@ -132,7 +125,35 @@ export const authAPI = {
 
     return data;
   },
-  
+
+  adminLogin: async (username, password) => {
+    // Clear any existing authentication data for secure login
+    tokenManager.clearAuth();
+
+    const payload = { username, password };
+
+    const response = await fetch(
+      `/api/adminlogin/adminlogin`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      }
+    );
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || "Admin login failed");
+    }
+
+    // Store token and user data
+    if (data.token) {
+      tokenManager.setToken(data.token);
+      tokenManager.setStoredUser(data.user);
+    }
+
+    return data;
+  },
 
   // Verify token by calling backend /api/adminlogin/verify; falls back to local decode if server unreachable
   verifyToken: async () => {

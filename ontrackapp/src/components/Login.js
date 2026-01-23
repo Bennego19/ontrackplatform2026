@@ -1,106 +1,54 @@
-// login.js - Updated version
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authAPI } from '../services/authMiddleware';
 import { tokenManager } from '../services/authMiddleware';
-import './Dashboard.css';
+import './Dashboard.css'; // Reuse the CSS
 
 const Login = () => {
   const navigate = useNavigate();
-
-  // Define test credentials for different roles
-  const TEST_CREDENTIALS = {
-    admin: {
-      username: 'admin',
-      password: 'admin123'
-    },
-    student: {
-      username: 'student',
-      password: 'student123'
-    }
-  };
-
+  
   // Login form state
   const [activeTab, setActiveTab] = useState('admin');
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
-  
-  // Use pre-filled test credentials based on selected tab
-  const [credentials, setCredentials] = useState(TEST_CREDENTIALS.admin);
+  const [credentials, setCredentials] = useState({ 
+    username: '', 
+    password: ''
+  });
 
-  // Update credentials when tab changes
-  const handleTabChange = (tab) => {
-    setActiveTab(tab);
-    setCredentials(TEST_CREDENTIALS[tab]);
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setIsLoggingIn(true);
     setLoginError('');
-  };
 
-const handleLogin = async (e) => {
-  e.preventDefault();
-  
-  if (!credentials.username || !credentials.password) {
-    setLoginError('Username and password are required');
-    return;
-  }
-  
-  setIsLoggingIn(true);
-  setLoginError('');
-
-  try {
-    // Pass the activeTab to the API to select the correct endpoint
-    const response = await authAPI.login(
-      credentials.username, 
-      credentials.password, 
-      activeTab
-    );
-    
-    console.log('Login response:', response); 
-    console.log('User object:', response.user);
-    console.log('User type from response:', response.userType); // Debug
-
-    if (response.success) {
-      tokenManager.setToken(response.token);
-      tokenManager.setStoredUser(response.user);
-
-      // Check user type in priority order:
-      // 1. Check response.userType (root level)
-      // 2. Check response.user.userType
-      // 3. Check response.user.role
-      // 4. Fallback to activeTab
-      const userType = response.userType || 
-                      response.user?.userType || 
-                      response.user?.role || 
-                      (activeTab === 'admin' ? 'admin' : 'student');
-      
-      console.log('Determined user type:', userType); // Debug
-      
-      // Route based on user type
-      if (userType === 'admin' || userType === 'superadmin') {
-        console.log('Routing to admin dashboard');
-        navigate('/dashboard');
-      } else if (userType === 'student') {
-        console.log('Routing to user dashboard');
-        navigate('/userdashboard');
+    try {
+      let response;
+      if (activeTab === 'admin') {
+        response = await authAPI.adminLogin(credentials.username, credentials.password);
       } else {
-        // If user type is not recognized, fallback based on activeTab
-        if (activeTab === 'admin') {
-          console.log('Fallback: Routing to admin dashboard');
+        response = await authAPI.login(credentials.username, credentials.password);
+      }
+
+      if (response.success) {
+        tokenManager.setToken(response.token);
+        tokenManager.setStoredUser(response.user);
+
+        // Redirect based on role
+        if (response.user.role === 'admin' || response.user.role === 'superadmin') {
           navigate('/dashboard');
         } else {
-          console.log('Fallback: Routing to user dashboard');
           navigate('/userdashboard');
         }
+      } else {
+        setLoginError(response.message || 'Login failed');
       }
-    } else {
-      setLoginError(response.message || 'Login failed. Check username/password.');
+    } catch (error) {
+      console.error('Login error:', error);
+      setLoginError('Login failed. Please try again.');
+    } finally {
+      setIsLoggingIn(false);
     }
-  } catch (error) {
-    console.error('Login error:', error);
-    setLoginError(error.message || 'Server error. Please try again later.');
-  } finally {
-    setIsLoggingIn(false);
-  }
-};
+  };
 
   const handleInputChange = (e) => {
     setCredentials({
@@ -120,13 +68,13 @@ const handleLogin = async (e) => {
         <div className="login-tabs">
           <button
             className={`tab-button ${activeTab === 'admin' ? 'active' : ''}`}
-            onClick={() => handleTabChange('admin')}
+            onClick={() => setActiveTab('admin')}
           >
             Admin Login
           </button>
           <button
             className={`tab-button ${activeTab === 'student' ? 'active' : ''}`}
-            onClick={() => handleTabChange('student')}
+            onClick={() => setActiveTab('student')}
           >
             Student Login
           </button>
@@ -136,14 +84,6 @@ const handleLogin = async (e) => {
           {loginError && <div className="error-message">{loginError}</div>}
           
           <h3>{activeTab === 'admin' ? 'Admin Login' : 'Student Login'}</h3>
-          
-          <div className="test-credentials">
-            <small>
-              <strong>Test Credentials:</strong><br />
-              Username: {credentials.username}<br />
-              Password: {credentials.password}
-            </small>
-          </div>
           
           <div className="form-group">
             <label htmlFor="username">Username</label>
@@ -180,8 +120,11 @@ const handleLogin = async (e) => {
           >
             {isLoggingIn ? 'Logging in...' : `Login as ${activeTab === 'admin' ? 'Admin' : 'Student'}`}
           </button>
+
+      
         </form>
       </div>
+      
 
       <div className="copyright">
         © {new Date().getFullYear()} OnTrack Connect. All rights reserved.
