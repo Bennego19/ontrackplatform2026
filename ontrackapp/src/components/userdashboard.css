@@ -1,0 +1,91 @@
+/* Dashboard Base Styles */
+body {
+    font-size: 14px;
+    font-family: Arial, sans-serif;
+    color: #333;
+    line-height: 1.5;
+}
+
+/* Text Elements */
+.dashboard-content,
+.course-overview,
+.assigned-mentor,
+.cohort-info,
+.menu-items,
+.upcoming-tasks,
+.notifications,
+.profile-section,
+.resource-library {
+    font-size: 14px;
+}
+
+.welcome-message {
+    font-size: 16px;
+    font-weight: bold;
+}
+
+/* Icons */
+.icon, .fa, .material-icons, [class*="icon-"] {
+    font-size: 6px;
+    color: #666;
+    margin-right: 8px;
+}
+
+/* Specific Icon Styles */
+.dashboard-icon {
+    font-size: 18px;
+    color: #3498db;
+}
+
+.menu-icon {
+    font-size: 16px;
+    color: #7f8c8d;
+}
+
+.notification-icon {
+    font-size: 14px;
+    color: #e74c3c;
+}
+
+.task-icon {
+    font-size: 15px;
+    color: #f39c12;
+}
+
+.menu-item .icon {
+    font-size: 16px;
+    color: #2c3e50;
+}
+
+.upcoming-item .icon {
+    font-size: 14px;
+    color: #27ae60;
+}
+
+/* Interactive States */
+.icon:hover {
+    color: #2980b9;
+    transform: scale(1.1);
+    transition: all 0.2s ease;
+}
+
+/* Button/Link Text */
+.view-modules,
+.view-assignments,
+.view-tasks,
+.view-projects {
+    font-size: 14px;
+}
+
+/* Due Date Text */
+.due-date {
+    font-size: 13px;
+    color: #666;
+}
+
+/* Section Headers */
+.section-header {
+    font-size: 15px;
+    font-weight: bold;
+    color: #2c3e50;
+}

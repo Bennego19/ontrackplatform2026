@@ -1,0 +1,7 @@
+# Frontend
+Set up `CD/ontrackapp/` then `npm install`
+run `npm start`
+
+# Backend
+Set up `CD/BACKEND/` then `npm install`
+run `npm run dev`
