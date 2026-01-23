@@ -7,3 +7,4 @@
 
 ./ontrackapp/node_modules
 ./ontrackapp/.env.production
+./ontrackapp/package-lock.json
