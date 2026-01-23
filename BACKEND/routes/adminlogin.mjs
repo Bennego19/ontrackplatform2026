@@ -14,7 +14,7 @@ router.use((req,res,next) =>{
 });
 
 // GET / - Basic info endpoint
-router.get("/", (req, res) => {
+router.get("/", (req, res) => { // security security problem
   res.json({
     message: "OnTrack Connect Admin Management API",
     version: "1.0.0",
@@ -406,6 +406,8 @@ router.post("/adminlogin", bruteforce.prevent, async (req, res) => {
 
     console.log("Parsed admin credentials:", { username, password });
 
+    const database = await db(); 
+
     if (!username || !password) {
       console.log("Missing admin credentials");
       return res.status(400).json({
@@ -413,7 +415,7 @@ router.post("/adminlogin", bruteforce.prevent, async (req, res) => {
       });
     }
 
-    const collection = await db.collection("admins");
+    const collection = await database.collection("admins");
 
     // Find admin by username
     const admin = await collection.findOne({
