@@ -1,10 +1,17 @@
-./BACKEND/node_modules
-./BACKEND/uploads/*
-./BACKEND/.env
-./BACKEND/.env.development
-./BACKEND/.package-lock.json
-./BACKEND/keys/*
+# Node modules - match anywhere
+**/node_modules/
+node_modules/
 
-./ontrackapp/node_modules
-./ontrackapp/.env.production
-./ontrackapp/package-lock.json
+# Backend
+BACKEND/uploads/*
+BACKEND/.env*
+BACKEND/package-lock.json
+BACKEND/keys/
+
+# Frontend
+ontrackapp/.env.production
+ontrackapp/package-lock.json
+
+# General
+*.log
+.DS_Store
